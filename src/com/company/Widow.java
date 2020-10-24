@@ -4,7 +4,7 @@ import java.awt.event.*;
 import javax.swing.*;
 
 public class Widow extends JFrame{
-    Canvas canv=new Canvas();
+    Petri petri = new Petri();
     public Widow() {
         super("eee");
        // JFrame w = new JFrame("Окно с изображением");
@@ -19,6 +19,6 @@ public class Widow extends JFrame{
 
         this.setVisible(true);
 
-        this.add(canv);
+        this.add(petri);
     }
 }
