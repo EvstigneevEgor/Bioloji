@@ -8,7 +8,7 @@ public class Widow extends JFrame{
     public Widow() {
         super("eee");
        // JFrame w = new JFrame("Окно с изображением");
-        this.setSize(430, 450);
+        this.setSize(petri.widhtWin + 30, petri.heightWin + 50);
 
         this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         this.setResizable(false);
