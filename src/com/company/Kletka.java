@@ -5,15 +5,19 @@ public class Kletka {
     boolean live;
     int kx, ky;
     String gen = new String();
-    int energy = 5;
+    int energy = 2;
     boolean it = true;
+    boolean isdead=false;
+    int timeLive=1000;
     int cont=0;
-    String s = "12345678sef";//ievasrz";
-
+    String s = "12345678seaaa12345678";//ievasrz";
+    boolean corpse=false;
+    private static final int retribution=200;
     public Kletka(int x, int y) {
         kx = x;
         ky = y;
         live = false;
+        corpse=false;
     }
 
     private void createRandGen() {
@@ -30,8 +34,12 @@ public class Kletka {
     }
     public void bPerehod(char s) {
         it=false;
+        energy--;
         int z=gen.indexOf(s);
+        if((cont+((z==-1)?(1):(z)))%gen.length()!=cont)
         cont=(cont+((z==-1)?(1):(z)))%gen.length();
+        else
+            cont=(cont+((z+3==-1)?(1):(z+3)))%gen.length();
         //return ;
 
     }
@@ -56,17 +64,23 @@ public class Kletka {
 
     void itnew() {
         it = true;
+        isdead=false;
     }
 
     void repl(Kletka kletka) {
         this.gen = kletka.gen;
         this.it = kletka.it;
         this.live = true;
+        this.isdead = false;
+        this.cont=cont;
         this.energy += kletka.energy;
-        kletka.dead();
+        corpse=false;
+        kletka.corpse=false;
+        kletka.del();
     }
 
     void burn(Kletka kletka) {
+
         if(kletka.it&&it){
             this.cont=0;
             this.gen = kletka.gen;
@@ -77,8 +91,9 @@ public class Kletka {
 
         this.it = kletka.it;
         this.live = true;
-        this.energy = kletka.energy / 2;
-        kletka.energy = (kletka.energy + 1) / 2;
+        this.isdead = false;
+        this.energy = kletka.energy / 6;
+        kletka.energy = ((kletka.energy + 1) / 5)*4;
         //kletka.dead();
             }
     }
@@ -100,6 +115,37 @@ public class Kletka {
         it=false;
         live = false;
         gen = "";
-        energy = 0;
+        energy = 1;
+        isdead=true;
+        timeLive=100;
+        corpse=true;
+    }
+    void del() {
+        it=false;
+        live = false;
+        gen = "";
+        energy = 1;
+        //isdead=true;
+        timeLive=100;
+    }
+
+    public void atack(Kletka kletka) {
+        if(!kletka.corpse){
+        if(energy-10>kletka.energy){
+
+            kletka.repl(this);
+        }else{
+            energy-=retribution;
+            if (energy<=0)
+                this.dead();
+        }}else{
+            energy+=300;
+            kletka.repl(this);
+        }
+
+    }
+
+    public boolean isCorpse() {
+        return corpse;
     }
 }

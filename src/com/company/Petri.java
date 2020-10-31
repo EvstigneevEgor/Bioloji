@@ -9,11 +9,12 @@ public class Petri extends JComponent {
 
     /*Метод, перерисовывающий элемент внутри окна
      *при обновлении*/
-    int widhtWin = 800, heightWin = 600;
-    Pole pole = new Pole(8, (widhtWin - 10) / 10, (heightWin - 10) / 10);
+    int widhtWin = 1100, heightWin = 600;
+    Pole pole = new Pole(2, (widhtWin - 10) / 3, (heightWin - 10) / 3);
 
-    long endTime = System.currentTimeMillis() + 3000;
-    boolean p=false;
+    long endTime = System.currentTimeMillis() + 8000;
+    long endTimedead = System.currentTimeMillis() + 8100;
+
     public void paintComponent(Graphics g) {
         super.paintComponents(g);
 
@@ -22,29 +23,35 @@ public class Petri extends JComponent {
         g2d.setPaint(Color.BLACK);
 
 
-        for (int i = 10; i < widhtWin; i += 10) {
-            for (int j = 10; j < heightWin; j += 10) {
-                g2d.drawRect(i, j, 10, 10);
-                if (pole.getLive((i - 10) / 10, (j - 10) / 10) > 0) {
+        for (int i = 10; i < widhtWin-3; i += 3) {
+            for (int j = 10; j < heightWin-3; j += 3) {
+                //g2d.drawRect(i, j, 3, 3);
+                if (pole.getLive((i - 10) / 3, (j - 10) / 3) > 0) {
                     g2d.setPaint(Color.RED);
-                    g2d.fillRect(i + 1, j + 1, 9, 9);
+                    g2d.fillRect(i , j, 3, 3);
                     g2d.setPaint(Color.BLACK);
+                }else if (pole.getDead((i - 10) / 3, (j - 10) / 3) > 0){
+                g2d.fillRect(i , j, 3, 3);}
+                else if (pole.isCorpse((i - 10) / 3, (j - 10) / 3) ){
+                    g2d.setPaint(Color.GRAY);
+                    g2d.fillRect(i , j, 3, 3);
+                    g2d.setPaint(Color.black);
                 }
             }
         }
         // задержка в 3 секунды
         if (System.currentTimeMillis() > endTime) {
-            endTime = System.currentTimeMillis() + 10;
+
+            endTime = System.currentTimeMillis() + 2;
             pole.itr();
-            if(p) {
-                pole.itrobn();
-                p=false;
-            }else
-                p=true;
+            //pole.itrobn();
+               // pole.itrobn();
+
         }
 
         super.repaint();
         g2d.dispose();
+
     }
 
 
