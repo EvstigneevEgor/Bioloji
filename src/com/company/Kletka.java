@@ -7,8 +7,8 @@ public class Kletka {
     String gen = new String();
     int energy = 5;
     boolean it = true;
-    private
-    String s = "12345678ssss";//ievasrz";
+    int cont=0;
+    String s = "12345678sef";//ievasrz";
 
     public Kletka(int x, int y) {
         kx = x;
@@ -27,6 +27,13 @@ public class Kletka {
     public void creategen(String s) {
         gen = s;
         System.out.println(gen);
+    }
+    public void bPerehod(char s) {
+        it=false;
+        int z=gen.indexOf(s);
+        cont=(cont+((z==-1)?(1):(z)))%gen.length();
+        //return ;
+
     }
 
     boolean isLive() {
@@ -60,15 +67,37 @@ public class Kletka {
     }
 
     void burn(Kletka kletka) {
-        this.gen = kletka.gen;
+        if(kletka.it&&it){
+            this.cont=0;
+            this.gen = kletka.gen;
+            if((int)(Math.random() * 5)==1){
+                this.genMut();
+            }
+            else
+
         this.it = kletka.it;
         this.live = true;
         this.energy = kletka.energy / 2;
         kletka.energy = (kletka.energy + 1) / 2;
         //kletka.dead();
+            }
+    }
+
+    private void genMut() {
+        if((int)(Math.random() * 5)==1 && gen.length()<100) {
+            gen+=s.charAt((int) (Math.random() * s.length()));
+        }else{
+            int b=(int) (Math.random() * gen.length());
+            char c =  s.charAt((int) (Math.random() * s.length()));
+            if(b+1<gen.length())
+            gen= gen.substring(0,b)+c+gen.substring(b+1);
+            else
+                gen= gen.substring(0,b)+c;
+        }
     }
 
     void dead() {
+        it=false;
         live = false;
         gen = "";
         energy = 0;

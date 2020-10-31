@@ -13,7 +13,7 @@ public class Petri extends JComponent {
     Pole pole = new Pole(8, (widhtWin - 10) / 10, (heightWin - 10) / 10);
 
     long endTime = System.currentTimeMillis() + 3000;
-
+    boolean p=false;
     public void paintComponent(Graphics g) {
         super.paintComponents(g);
 
@@ -34,8 +34,13 @@ public class Petri extends JComponent {
         }
         // задержка в 3 секунды
         if (System.currentTimeMillis() > endTime) {
-            endTime = System.currentTimeMillis() + 1000;
+            endTime = System.currentTimeMillis() + 10;
             pole.itr();
+            if(p) {
+                pole.itrobn();
+                p=false;
+            }else
+                p=true;
         }
 
         super.repaint();

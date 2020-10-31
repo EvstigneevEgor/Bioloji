@@ -5,7 +5,8 @@ public class Pole {
     public
     Kletka[][] matr;
     int W, H;
-    String[] g = new String[]{"e1", "s2", "e3", "s4", "e5", "e7", "s6", "s8"};
+    String[] g = new String[]{"f", "f", "f", "f", "f", "f", "f", "f"};
+    int[] bervz = new int[]{1, 3, 5, 7};
 
     Pole(int n, int w, int h) {
         W = w;
@@ -38,42 +39,92 @@ public class Pole {
         for (int i = 0; i < W; i++)
             for (int j = 0; j < H; j++) {
                 if (matr[i][j].it && matr[i][j].isLive()) {
-                    for (int g = 0; g < matr[i][j].gen.length(); g++) {
-                        char st = matr[i][j].gen.charAt(g);
-                        if (st == 's') {
+                    if (matr[i][j].energy >= 20) {
+                        if(bernvzmzn(i,j)!=-1)
+                        this.bern(i, j, bernvzmzn(i,j));
+                        else
+                            matr[i][j].dead();
+                    }
+                    if(matr[i][j].isLive()){
+                    int g = matr[i][j].cont % matr[i][j].gen.length();
+                    char st = matr[i][j].gen.charAt(g);
+                    if (st == 'f') {
+                        matr[i][j].energy+=1;
+                        matr[i][j].cont++;
+                    } else if (st == 's') {
+                        if (g + 1 < matr[i][j].gen.length()) {
+                            if (matr[i][j].gen.charAt(g + 1) < '1' || matr[i][j].gen.charAt(g + 1) > '8') {
+
+                                matr[i][j].bPerehod(st);
+                            } else {
+                                int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
+                                //matr[i][j].step(matr,i,j,t);
+                                matr[i][j].it = false;
+                                this.step(i, j, t);
+                            }
+                        } else {
+                            matr[i][j].bPerehod(st);
+                        }
+                    } else {
+                        if (st == 'e') {
                             if (g + 1 < matr[i][j].gen.length()) {
-                                if (matr[i][j].gen.charAt(g + 1) < '1' || matr[i][j].gen.charAt(g + 1) > '8') {
-                                    continue;
-                                } else {
+                                if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
                                     int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
                                     //matr[i][j].step(matr,i,j,t);
                                     matr[i][j].it = false;
-                                    this.step(i, j, t);
+                                    this.bern(i, j, t);
+                                } else {
+                                    matr[i][j].bPerehod(st);
                                 }
+                            } else {
+                                matr[i][j].bPerehod(st);
                             }
                         } else {
-                            if (st == 'e') {
-                                if (g + 1 < matr[i][j].gen.length()) {
-                                    if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
-                                        int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
-                                        //matr[i][j].step(matr,i,j,t);
-                                        matr[i][j].it = false;
-                                        this.bern(i, j, t);
-                                    } else {
-                                        continue;
-                                    }
-                                }
-                            }
+                            matr[i][j].bPerehod(st);
                         }
-
                     }
 
+
+                }
                 }
             }
-        this.itrobn();
+        //this.itrobn();
+    }
+
+    private int bernvzmzn(int kx, int ky) {
+        String bufst = new String();
+
+        if (ky >= 1)
+            if (!matr[kx][ky - 1].isLive()&&matr[kx][ky - 1].it)
+                bufst += "1";
+
+            int matrx = kx;
+            if (kx + 1 >= W)
+                matrx = 0;
+            else matrx++;
+            if (!matr[matrx][ky].isLive()&&matr[matrx][ky].it)
+                bufst += "3";
+
+        if (ky < H - 1) {
+            matrx = kx;
+            if (kx + 1 >= W)
+                matrx = 0;
+            if (!matr[matrx][ky + 1].isLive()&&matr[matrx][ky + 1].it)
+                bufst += "5";
+        }
+        matrx = kx;
+        if (kx - 1 < 0)
+            matrx = W - 1;
+        else matrx--;
+        if (!matr[matrx][ky].isLive()&&matr[matrx][ky].it)
+            bufst += "7";
+
+        int d=(bufst.length()==0)?(-1):(Character.digit(bufst.charAt((int) (Math.random() * bufst.length())), 10));
+        return d;
     }
 
     private void bern(int kx, int ky, int t) {
+        matr[kx][ky].cont++;
         switch (t) {
             case (1):
                 if (ky >= 1) {
@@ -138,6 +189,7 @@ public class Pole {
     }
 
     private void step(int kx, int ky, int t) {
+        matr[kx][ky].cont++;
         switch (t) {
             case (1):
                 if (ky >= 1) {
