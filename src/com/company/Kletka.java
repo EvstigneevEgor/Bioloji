@@ -5,19 +5,22 @@ public class Kletka {
     boolean live;
     int kx, ky;
     String gen = new String();
-    int energy = 2;
+    int energy = 1;
     boolean it = true;
     boolean isdead=false;
+    boolean isbern=false;
+
     int timeLive=1000;
     int cont=0;
-    String s = "12345678seaaa12345678";//ievasrz";
+    String s = "12345678seaf";//ievasrz";
     boolean corpse=false;
-    private static final int retribution=200;
+    private static final int retribution=20;
     public Kletka(int x, int y) {
         kx = x;
         ky = y;
         live = false;
         corpse=false;
+        isbern=true;
     }
 
     private void createRandGen() {
@@ -43,9 +46,26 @@ public class Kletka {
         //return ;
 
     }
+    public int hash(int s) {
+        int z=gen.indexOf(gen.charAt(s));
+
+            return (cont+((z==-1)?(1):(z)))%gen.length();
+
+        //return ;
+
+    }
 
     boolean isLive() {
         return live;
+    }
+    boolean isParents(Kletka k){
+        int razn=Math.abs(gen.length()-k.gen.length());
+        for(int i = 0 ; i < Math.min(gen.length(),k.gen.length());i++){
+            if(gen.charAt(i)!=k.gen.charAt(i))
+               razn++;
+        }
+       // System.out.println((razn*100)/Math.min(gen.length(),k.gen.length()));
+        return ((razn*100)/Math.min(gen.length(),k.gen.length())<20);
     }
 
     public void reviv() {
@@ -65,6 +85,7 @@ public class Kletka {
     void itnew() {
         it = true;
         isdead=false;
+        isbern=false;
     }
 
     void repl(Kletka kletka) {
@@ -84,7 +105,7 @@ public class Kletka {
         if(kletka.it&&it){
             this.cont=0;
             this.gen = kletka.gen;
-            if((int)(Math.random() * 5)==1){
+            if((int)(Math.random() * 6)==1){
                 this.genMut();
             }
             else
@@ -92,8 +113,9 @@ public class Kletka {
         this.it = kletka.it;
         this.live = true;
         this.isdead = false;
-        this.energy = kletka.energy / 6;
-        kletka.energy = ((kletka.energy + 1) / 5)*4;
+        this.energy += kletka.energy / 3;
+        this.isbern=true;
+        kletka.energy = kletka.energy - this.energy;
         //kletka.dead();
             }
     }
@@ -130,17 +152,20 @@ public class Kletka {
     }
 
     public void atack(Kletka kletka) {
-        if(!kletka.corpse){
-        if(energy-10>kletka.energy){
+        if(!corpse){
+            if(!isParents(kletka))
+        if(kletka.energy-10>energy){
 
-            kletka.repl(this);
+            repl(kletka);
         }else{
-            energy-=retribution;
+            kletka.energy-=retribution;
             if (energy<=0)
-                this.dead();
-        }}else{
-            energy+=300;
-            kletka.repl(this);
+                dead();
+        }else
+            kletka.cont++;
+        }else{
+            kletka.energy+=200;
+            repl(kletka);
         }
 
     }

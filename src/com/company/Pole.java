@@ -5,10 +5,11 @@ public class Pole {
     public
     Kletka[][] matr;
     int W, H;
-    String[] g = new String[]{"f", "ffffa1", "f", "f", "f", "f", "f", "f"};
+    String[] g = new String[]{"fffffffffffffffffffff", "ffffffffffffffff", "f", "f", "f", "f", "f", "f"};
     int[] bervz = new int[]{1, 3, 5, 7};
-    private static final int energyForDel = 250;
-    private static final int energyForStep = 50;
+    private static final int energyForDel = 150;
+    private static final int energyForStep = 150;
+    boolean leto=true;
 
     Pole(int n, int w, int h) {
         W = w;
@@ -20,13 +21,13 @@ public class Pole {
             for (int j = 0; j < h; j++)
                 matr[i][j] = new Kletka(i, j);
         for (int i = 0; i < n; i++) {
-            int rw = (int) (Math.random() * (w - 1)), rh = (int) (Math.random() * (h - 1));
+            int rw = (int) (Math.random() * (w - 1)), rh = (int) (Math.random() * (h - 1)/2);
             while (matr[rw][rh].isLive()) {
-                rw = (int) (Math.random() * w);
-                rh = (int) (Math.random() * h);
+                rw = (int) (Math.random() * (w-1));
+                rh = (int) (Math.random() * (h-1));
             }
             matr[rw][rh].reviv();
-            matr[rw][rh].energy = 990;
+            matr[rw][rh].energy = 150;
             matr[rw][rh].creategen(g[o++]);
 
         }
@@ -43,16 +44,20 @@ public class Pole {
         for (int i = 0; i < W; i++)
             for (int j = 0; j < H; j++) {
                 if (matr[i][j].isLive()) {
-                if (matr[i][j].timeLive <= 0)
+                if (matr[i][j].timeLive <= 0){
+                    //System.out.println(matr[i][j].energy+" "+matr[i][j].gen);
                     matr[i][j].dead();
+                }
                 if (bernvzmzn(i, j) == -1)
                     matr[i][j].dead();
                 if (matr[i][j].energy <= 0)
                     matr[i][j].dead();
-
-                if (matr[i][j].energy >= energyForDel) {
-                    if (bernvzmzn(i, j) != -1)
+                //if (bernvzmzn(i, j) != -1)
+                if (matr[i][j].energy >= energyForDel*50) {
+                    if (bernvzmzn(i, j) != -1){
+                        matr[i][j].energy-=energyForDel*40;
                         this.bern(i, j, bernvzmzn(i, j));
+                    }
                     else
                         matr[i][j].dead();
                 }}
@@ -61,47 +66,60 @@ public class Pole {
                     int g = matr[i][j].cont % matr[i][j].gen.length();
                     char st = matr[i][j].gen.charAt(g);
                     if (st == 'f') {
-                        matr[i][j].energy += (j > H / 2) ? 100 : 50;
+                        matr[i][j].energy += (leto)?(H-j)*100/H:(H-j)*25/H;//(j > H / 2) ? 15 : 10;
                         matr[i][j].cont++;
                         matr[i][j].it = false;
                     } else if (st == 's') {
                         if (g + 1 < matr[i][j].gen.length()) {
-                            if (matr[i][j].gen.charAt(g + 1) < '1' || matr[i][j].gen.charAt(g + 1) > '8') {
+                            /*if (matr[i][j].gen.charAt(g + 1) < '1' || matr[i][j].gen.charAt(g + 1) > '8') {
 
                                 matr[i][j].bPerehod(st);
                             } else {
-                                int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
+
+                             */
+                                int t =matr[i][j].hash( g+1)%9+1 ;// Character.digit(matr[i][j].gen.charAt(g + 1), 10);
                                 //matr[i][j].step(matr,i,j,t);
+                            if(matr[i][j].energy-energyForStep>=0){
                                 matr[i][j].it = false;
-                                this.step(i, j, t);
-                            }
+                                this.step(i, j, t);}
+                            else
+                                matr[i][j].bPerehod(st);
+                            //}
                         } else {
                             matr[i][j].bPerehod(st);
                         }
                     } else {
                         if (st == 'e') {
                             if (g + 1 < matr[i][j].gen.length()) {
-                                if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
-                                    int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
+                                //if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
+                                    int t = bervz[matr[i][j].hash( g+1)%4] ; //Character.digit(matr[i][j].gen.charAt(g + 1), 10);
                                     //matr[i][j].step(matr,i,j,t);
+                                if(matr[i][j].energy-energyForDel>=0){
                                     matr[i][j].it = false;
-                                    this.bern(i, j, t);
-                                } else {
+                                    this.bern(i, j, t);}
+                                    else
+                                        matr[i][j].bPerehod(st);
+                            /*
+                            } else {
                                     matr[i][j].bPerehod(st);
                                 }
+
+                             */
                             } else {
                                 matr[i][j].bPerehod(st);
                             }
                         } else {
                             if (st == 'a') {
                                 if (g + 1 < matr[i][j].gen.length()) {
-                                    if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
-                                        int t = Character.digit(matr[i][j].gen.charAt(g + 1), 10);
+                                   // if (matr[i][j].gen.charAt(g + 1) == '1' || matr[i][j].gen.charAt(g + 1) == '7' || matr[i][j].gen.charAt(g + 1) == '3' || matr[i][j].gen.charAt(g + 1) == '5') {
+                                        int t = bervz[matr[i][j].hash( g+1)%4] ;     //Character.digit(matr[i][j].gen.charAt(g + 1), 10);
                                         matr[i][j].it = false;
                                         this.atack(i, j, t);
+                                    /*
                                     } else {
                                         matr[i][j].bPerehod(st);
                                     }
+                                    */
                                 } else {
                                     matr[i][j].bPerehod(st);
                                 }
@@ -119,12 +137,12 @@ public class Pole {
     }
 
     private void atack(int kx, int ky, int t) {
-        matr[kx][ky].cont++;
+        matr[kx][ky].cont+=t;
         switch (t) {
             case (1):
                 if (ky >= 1) {
                     if (matr[kx][ky - 1].isLive()||matr[kx][ky - 1].isCorpse()) {
-                        matr[kx][ky].energy -= energyForDel;
+                        matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
                             matr[kx][ky - 1].atack(matr[kx][ky]);
                         } else
@@ -139,7 +157,7 @@ public class Pole {
                     matrx = 0;
                 else matrx++;
                 if (matr[matrx][ky].isLive()||matr[matrx][ky].isCorpse()) {
-                    matr[kx][ky].energy -= energyForDel;
+                    matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].atack(matr[kx][ky]);
                     } else
@@ -152,7 +170,7 @@ public class Pole {
                 if (ky < H - 1) {
                     int matrx = kx;
                     if (matr[matrx][ky + 1].isLive()||matr[matrx][ky + 1].isCorpse()) {
-                        matr[kx][ky].energy -= energyForDel;
+                        matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky + 1].atack(matr[kx][ky]);
                         } else
@@ -167,7 +185,7 @@ public class Pole {
                     matrx = W - 1;
                 else matrx--;
                 if (matr[matrx][ky].isLive()||matr[matrx][ky].isCorpse()) {
-                    matr[kx][ky].energy -= energyForDel;
+                    matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].atack(matr[kx][ky]);
                     } else
@@ -185,28 +203,28 @@ public class Pole {
         String bufst = new String();
 
         if (ky >= 1)
-            if (!matr[kx][ky - 1].isLive() && matr[kx][ky - 1].it && !matr[kx][ky - 1].isCorpse())
+            if (!matr[kx][ky - 1].isLive() && !matr[kx][ky - 1].isCorpse())
                 bufst += "1";
 
         int matrx = kx;
         if (kx + 1 >= W)
             matrx = 0;
         else matrx++;
-        if (!matr[matrx][ky].isLive() && matr[matrx][ky].it && !matr[matrx][ky].isCorpse())
+        if (!matr[matrx][ky].isLive() &&  !matr[matrx][ky].isCorpse())
             bufst += "3";
 
         if (ky < H - 1) {
             matrx = kx;
             if (kx + 1 >= W)
                 matrx = 0;
-            if (!matr[matrx][ky + 1].isLive() && matr[matrx][ky + 1].it && !matr[matrx][ky + 1].isCorpse())
+            if (!matr[matrx][ky + 1].isLive() &&  !matr[matrx][ky + 1].isCorpse())
                 bufst += "5";
         }
         matrx = kx;
         if (kx - 1 < 0)
             matrx = W - 1;
         else matrx--;
-        if (!matr[matrx][ky].isLive() && matr[matrx][ky].it && !matr[matrx][ky].isCorpse())
+        if (!matr[matrx][ky].isLive() &&  !matr[matrx][ky].isCorpse())
             bufst += "7";
 
         int d = (bufst.length() == 0) ? (-1) : (Character.digit(bufst.charAt((int) (Math.random() * bufst.length())), 10));
@@ -214,7 +232,7 @@ public class Pole {
     }
 
     private void bern(int kx, int ky, int t) {
-        matr[kx][ky].cont++;
+        matr[kx][ky].cont+=t;
         switch (t) {
             case (1):
                 if (ky >= 1) {
@@ -223,7 +241,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[kx][ky - 1].burn(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -238,7 +256,7 @@ public class Pole {
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].burn(matr[kx][ky]);
                     } else
-                        matr[kx][ky].del();
+                        matr[kx][ky].dead();
                 }
             }
             break;
@@ -246,14 +264,13 @@ public class Pole {
             case (5):
                 if (ky < H - 1) {
                     int matrx = kx;
-                    if (kx + 1 >= W)
-                        matrx = 0;
+
                     if (!matr[matrx][ky + 1].isLive()&&!matr[matrx][ky + 1].isCorpse()) {
                         matr[kx][ky].energy -= energyForDel;
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky + 1].burn(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -268,7 +285,7 @@ public class Pole {
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].burn(matr[kx][ky]);
                     } else
-                        matr[kx][ky].del();
+                        matr[kx][ky].dead();
                 }
             }
             break;
@@ -279,7 +296,7 @@ public class Pole {
     }
 
     private void step(int kx, int ky, int t) {
-        matr[kx][ky].cont++;
+        matr[kx][ky].cont+=t;
         switch (t) {
             case (1):
                 if (ky >= 1) {
@@ -288,7 +305,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[kx][ky - 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -303,7 +320,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky - 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -317,7 +334,7 @@ public class Pole {
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].repl(matr[kx][ky]);
                     } else
-                        matr[kx][ky].del();
+                        matr[kx][ky].dead();
                 }
             }
             break;
@@ -332,7 +349,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky + 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -346,7 +363,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky + 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -361,7 +378,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky + 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -375,7 +392,7 @@ public class Pole {
                     if (matr[kx][ky].energy > 0) {
                         matr[matrx][ky].repl(matr[kx][ky]);
                     } else
-                        matr[kx][ky].del();
+                        matr[kx][ky].dead();
                 }
             }
             break;
@@ -390,7 +407,7 @@ public class Pole {
                         if (matr[kx][ky].energy > 0) {
                             matr[matrx][ky - 1].repl(matr[kx][ky]);
                         } else
-                            matr[kx][ky].del();
+                            matr[kx][ky].dead();
                     }
                 }
                 break;
@@ -417,5 +434,11 @@ public class Pole {
 
     public boolean isCorpse(int w, int h) {
         return (matr[w][h].isCorpse());
+    }
+    public boolean isBern(int w, int h) {
+        return (matr[w][h].isbern);
+    }
+    public void year() {
+        leto=!leto;
     }
 }
