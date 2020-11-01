@@ -164,7 +164,7 @@ public class Kletka {
         }else
             kletka.cont++;
         }else{
-            kletka.energy+=200;
+            kletka.energy+=400;
             repl(kletka);
         }
 

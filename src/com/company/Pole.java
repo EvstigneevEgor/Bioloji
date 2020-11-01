@@ -8,7 +8,7 @@ public class Pole {
     String[] g = new String[]{"fffffffffffffffffffff", "ffffffffffffffff", "f", "f", "f", "f", "f", "f"};
     int[] bervz = new int[]{1, 3, 5, 7};
     private static final int energyForDel = 150;
-    private static final int energyForStep = 150;
+    private static final int energyForStep = 250;
     boolean leto=true;
 
     Pole(int n, int w, int h) {
@@ -152,10 +152,8 @@ public class Pole {
                 break;
 
             case (3): {
-                int matrx = kx;
-                if (kx + 1 >= W)
-                    matrx = 0;
-                else matrx++;
+                int matrx = kx+1;
+                if (kx + 1 < W)
                 if (matr[matrx][ky].isLive()||matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
@@ -180,10 +178,8 @@ public class Pole {
                 break;
 
             case (7): {
-                int matrx = kx;
-                if (kx - 1 < 0)
-                    matrx = W - 1;
-                else matrx--;
+                int matrx = kx-1;
+                if (kx - 1 >= 0)
                 if (matr[matrx][ky].isLive()||matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
@@ -206,24 +202,18 @@ public class Pole {
             if (!matr[kx][ky - 1].isLive() && !matr[kx][ky - 1].isCorpse())
                 bufst += "1";
 
-        int matrx = kx;
-        if (kx + 1 >= W)
-            matrx = 0;
-        else matrx++;
-        if (!matr[matrx][ky].isLive() &&  !matr[matrx][ky].isCorpse())
-            bufst += "3";
-
+        if (kx + 1 < W) {
+            int matrx = kx + 1;
+            if (!matr[matrx][ky].isLive() && !matr[matrx][ky].isCorpse())
+                bufst += "3";
+        }
         if (ky < H - 1) {
-            matrx = kx;
-            if (kx + 1 >= W)
-                matrx = 0;
+            int matrx = kx;
             if (!matr[matrx][ky + 1].isLive() &&  !matr[matrx][ky + 1].isCorpse())
                 bufst += "5";
         }
-        matrx = kx;
-        if (kx - 1 < 0)
-            matrx = W - 1;
-        else matrx--;
+       int  matrx = kx-1;
+        if (kx - 1 >= 0)
         if (!matr[matrx][ky].isLive() &&  !matr[matrx][ky].isCorpse())
             bufst += "7";
 
@@ -247,10 +237,8 @@ public class Pole {
                 break;
 
             case (3): {
-                int matrx = kx;
-                if (kx + 1 >= W)
-                    matrx = 0;
-                else matrx++;
+                int matrx = kx+1;
+                if (kx + 1 < W)
                 if (!matr[matrx][ky].isLive()&&!matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForDel;
                     if (matr[kx][ky].energy > 0) {
@@ -276,10 +264,8 @@ public class Pole {
                 break;
 
             case (7): {
-                int matrx = kx;
-                if (kx - 1 < 0)
-                    matrx = W - 1;
-                else matrx--;
+                int matrx = kx-1;
+                if (kx - 1 >= 0)
                 if (!matr[matrx][ky].isLive()&&!matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForDel;
                     if (matr[kx][ky].energy > 0) {
@@ -311,10 +297,8 @@ public class Pole {
                 break;
             case (2):
                 if (ky >= 1) {
-                    int matrx = kx;
-                    if (kx + 1 >= W)
-                        matrx = 0;
-                    else matrx++;
+                    int matrx = kx+1;
+                    if (kx + 1 < W)
                     if (!matr[matrx][ky - 1].isLive()&&!matr[matrx][ky - 1].isCorpse()) {
                         matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
@@ -325,10 +309,8 @@ public class Pole {
                 }
                 break;
             case (3): {
-                int matrx = kx;
-                if (kx + 1 >= W)
-                    matrx = 0;
-                else matrx++;
+                int matrx = kx+1;
+                if (kx + 1 < W)
                 if (!matr[matrx][ky].isLive()&&!matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
@@ -340,10 +322,8 @@ public class Pole {
             break;
             case (4):
                 if (ky < H - 1) {
-                    int matrx = kx;
-                    if (kx + 1 >= W)
-                        matrx = 0;
-                    else matrx++;
+                    int matrx = kx+1;
+                    if (kx + 1 < W)
                     if (!matr[matrx][ky].isLive()&&!matr[matrx][ky].isCorpse()) {
                         matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
@@ -356,8 +336,6 @@ public class Pole {
             case (5):
                 if (ky < H - 1) {
                     int matrx = kx;
-                    if (kx + 1 >= W)
-                        matrx = 0;
                     if (!matr[matrx][ky + 1].isLive()&&!matr[matrx][ky + 1].isCorpse()) {
                         matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
@@ -369,10 +347,8 @@ public class Pole {
                 break;
             case (6):
                 if (ky < H - 1) {
-                    int matrx = kx;
-                    if (kx - 1 < 0)
-                        matrx = W - 1;
-                    else matrx--;
+                    int matrx = kx-1;
+                    if (kx - 1 >= 0)
                     if (!matr[matrx][ky + 1].isLive()&&!matr[matrx][ky + 1].isCorpse()) {
                         matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
@@ -383,10 +359,8 @@ public class Pole {
                 }
                 break;
             case (7): {
-                int matrx = kx;
-                if (kx - 1 < 0)
-                    matrx = W - 1;
-                else matrx--;
+                int matrx = kx-1;
+                if (kx - 1 >= 0)
                 if (!matr[matrx][ky].isLive()&&!matr[matrx][ky].isCorpse()) {
                     matr[kx][ky].energy -= energyForStep;
                     if (matr[kx][ky].energy > 0) {
@@ -398,10 +372,8 @@ public class Pole {
             break;
             case (8):
                 if (ky >= 1) {
-                    int matrx = kx;
-                    if (kx - 1 < 0)
-                        matrx = W - 1;
-                    else matrx--;
+                    int matrx = kx-1;
+                    if (kx - 1 >= 0)
                     if (!matr[matrx][ky - 1].isLive()&&!matr[matrx][ky - 1].isCorpse()) {
                         matr[kx][ky].energy -= energyForStep;
                         if (matr[kx][ky].energy > 0) {
