@@ -95,6 +95,7 @@ public class Kletka {
         this.isdead = false;
         this.cont=cont;
         this.energy += kletka.energy;
+
         corpse=false;
         kletka.corpse=false;
         kletka.del();
@@ -134,15 +135,17 @@ public class Kletka {
     }
 
     void dead() {
+        cont=0;
         it=false;
         live = false;
         gen = "";
-        energy = 1;
+        energy = 100;
         isdead=true;
         timeLive=100;
         corpse=true;
     }
     void del() {
+        cont=0;
         it=false;
         live = false;
         gen = "";
@@ -155,16 +158,17 @@ public class Kletka {
         if(!corpse){
             if(!isParents(kletka))
         if(kletka.energy-10>energy){
-
+            kletka.energy+=400;
             repl(kletka);
         }else{
             kletka.energy-=retribution;
-            if (energy<=0)
-                dead();
-        }else
-            kletka.cont++;
+            if (kletka.energy<=0)
+                kletka.dead();
+            else
+                kletka.cont++;
+        }
         }else{
-            kletka.energy+=400;
+            kletka.energy+=800;
             repl(kletka);
         }
 

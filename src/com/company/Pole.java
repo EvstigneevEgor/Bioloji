@@ -48,8 +48,8 @@ public class Pole {
                     //System.out.println(matr[i][j].energy+" "+matr[i][j].gen);
                     matr[i][j].dead();
                 }
-                if (bernvzmzn(i, j) == -1)
-                    matr[i][j].dead();
+                //if (bernvzmzn(i, j) == -1)
+                  //  matr[i][j].dead();
                 if (matr[i][j].energy <= 0)
                     matr[i][j].dead();
                 //if (bernvzmzn(i, j) != -1)
