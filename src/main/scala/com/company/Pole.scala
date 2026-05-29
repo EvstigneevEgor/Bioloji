@@ -146,6 +146,9 @@ class Pole(n: Int, val W: Int, val H: Int):
     val free = Bervz.filter(d => neighbor(kx, ky, d).exists((tx, ty) => !occupied(tx, ty)))
     if free.isEmpty then -1 else free(Rng.int(free.length))
 
+  /** Клетка по координатам поля — для просмотра генома в отдельном окне. */
+  def kletka(w: Int, h: Int): Kletka = matr(w)(h)
+
   def getLive(w: Int, h: Int): Boolean = matr(w)(h).isLive
   def getDead(w: Int, h: Int): Boolean = matr(w)(h).isDead
   def isCorpse(w: Int, h: Int): Boolean = matr(w)(h).isCorpse

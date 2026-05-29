@@ -1,16 +1,29 @@
 package com.company
 
-import scala.swing.{MainFrame, Dimension}
+import scala.swing.{MainFrame, Dimension, BorderPanel, FlowPanel, BoxPanel, Orientation, Button, Label, Action}
 import javax.swing.Timer
 import java.awt.event.{ActionEvent, ActionListener}
+import java.awt.Font
 
 object Window:
-  /** Интервал шага симуляции, мс (FIX: явная именованная константа). */
-  private val TickIntervalMs = 60
   /** Каждые сколько тиков меняется сезон. */
   private val TicksPerSeason = 200
 
-/** Главное окно. Симуляцию двигает javax.swing.Timer (в EDT), не paint. */
+  /** Уровни скорости: (задержка мс, шагов за тик, название). */
+  private val SpeedLevels: Array[(Int, Int, String)] = Array(
+    (240, 1, "0.25x"),
+    (120, 1, "0.5x"),
+    (60,  1, "1x"),
+    (30,  1, "2x"),
+    (15,  1, "4x"),
+    (15,  2, "8x"),
+    (15,  4, "16x"),
+    (15,  8, "32x")
+  )
+  /** Индекс скорости по умолчанию (1x). */
+  private val DefaultSpeedIdx = 2
+
+/** Главное окно с панелью управления симуляцией. */
 class Window extends MainFrame:
   import Window.*
 
@@ -18,20 +31,135 @@ class Window extends MainFrame:
   resizable = false
 
   private val petri = new Petri
-  contents = petri
 
-  size = new Dimension(petri.widthWin + 30, petri.heightWin + 70)
+  // Отдельное окно с геномом выбранной клетки.
+  private val genomeWindow = new GenomeWindow(petri)
+  petri.onSelectCell = (x, y) =>
+    genomeWindow.select(x, y)
+    genomeWindow.visible = true
+    genomeWindow.peer.toFront()
 
+  // ── состояние симуляции ──────────────────────────────────
+  private var speedIdx  = DefaultSpeedIdx
+  private var running   = true
   private var tickCount = 0
 
+  // ── индикатор скорости ──────────────────────────────────
+  private val speedLabel = new Label(s" Скорость: ${SpeedLevels(speedIdx)._3} ")
+  speedLabel.font = new Font("SansSerif", Font.BOLD, 13)
+
+  private def updateSpeedLabel(): Unit =
+    speedLabel.text = s" Скорость: ${SpeedLevels(speedIdx)._3} "
+
+  private def setSpeed(idx: Int): Unit =
+    speedIdx = math.max(0, math.min(idx, SpeedLevels.length - 1))
+    timer.setDelay(SpeedLevels(speedIdx)._1)
+    updateSpeedLabel()
+
+  // ── кнопки управления ───────────────────────────────────
+  private val btnFont = new Font("SansSerif", Font.PLAIN, 18)
+
+  private val btnPlay = new Button(Action("\u25B6") {
+    running = true
+    if !timer.isRunning then timer.start()
+  })
+
+  private val btnPause = new Button(Action("\u23F8") {
+    running = false
+  })
+
+  private val btnStop = new Button(Action("\u23F9") {
+    running = false
+    timer.stop()
+    tickCount = 0
+    petri.resetPole()
+    petri.repaint()
+  })
+
+  private val btnFast = new Button(Action("\u23E9") { setSpeed(speedIdx + 1) })
+  private val btnSlow = new Button(Action("\u23EA") { setSpeed(speedIdx - 1) })
+  private val btnMax  = new Button(Action("\u23EB") { setSpeed(SpeedLevels.length - 1) })
+  private val btnMin  = new Button(Action("\u23EC") { setSpeed(0) })
+
+  // Сброс масштаба/сдвига поля к виду «всё целиком».
+  private val btnResetView = new Button(Action("1:1") { petri.resetView() })
+
+  locally {
+    for btn <- Seq(btnPlay, btnPause, btnStop, btnFast, btnSlow, btnMax, btnMin, btnResetView) do
+      btn.font = btnFont
+    btnPlay.tooltip      = "Запуск"
+    btnPause.tooltip     = "Пауза"
+    btnStop.tooltip      = "Стоп (сброс симуляции)"
+    btnFast.tooltip      = "Ускорить"
+    btnSlow.tooltip      = "Замедлить"
+    btnMax.tooltip       = "Макс. скорость"
+    btnMin.tooltip       = "Мин. скорость"
+    btnResetView.tooltip = "Сброс вида (масштаб 1:1)"
+  }
+
+  // ── панель управления ───────────────────────────────────
+  private val controlPanel = new FlowPanel(
+    btnSlow, btnMin, btnPlay, btnPause, btnStop, btnMax, btnFast, speedLabel, btnResetView
+  )
+
+  // ── регулировка вознаграждений ──────────────────────────
+  /**
+   * Строит блок «− [значение] +» для регулировки одного параметра-награды.
+   * get/set читают и записывают изменяемую переменную в объекте Kletka,
+   * чтобы изменения немедленно влияли на симуляцию.
+   */
+  private def rewardControl(
+      name: String, get: () => Int, set: Int => Unit, step: Int, min: Int
+  ): FlowPanel =
+    val value = new Label(get().toString)
+    value.font = new Font("SansSerif", Font.BOLD, 13)
+    def refresh(): Unit = value.text = get().toString
+    val minus = new Button(Action("\u2212") {
+      set(math.max(min, get() - step)); refresh()
+    })
+    val plus = new Button(Action("+") { set(get() + step); refresh() })
+    val caption = new Label(s"$name:")
+    caption.font = new Font("SansSerif", Font.PLAIN, 12)
+    for b <- Seq(minus, plus) do b.font = new Font("SansSerif", Font.BOLD, 14)
+    new FlowPanel(caption, minus, value, plus)
+
+  private val rewardPanel = new FlowPanel(
+    rewardControl("Труп (падальщик)",
+      () => Kletka.CorpseBonus, v => Kletka.CorpseBonus = v, step = 100, min = 0),
+    rewardControl("Добыча (хищник)",
+      () => Kletka.WeakPreyBonus, v => Kletka.WeakPreyBonus = v, step = 100, min = 0),
+    rewardControl("Штраф за атаку",
+      () => Kletka.Retribution, v => Kletka.Retribution = v, step = 5, min = 0)
+  )
+
+  // ── компоновка ──────────────────────────────────────────
+  private val southPanel = new BoxPanel(Orientation.Vertical) {
+    contents += controlPanel
+    contents += rewardPanel
+  }
+
+  contents = new BorderPanel {
+    layout(petri) = BorderPanel.Position.Center
+    layout(southPanel) = BorderPanel.Position.South
+  }
+
+  size = new Dimension(petri.widthWin + 30, petri.heightWin + 160)
+
+  // ── таймер симуляции ────────────────────────────────────
   private val timer = new Timer(
-    TickIntervalMs,
+    SpeedLevels(speedIdx)._1,
     new ActionListener:
       def actionPerformed(e: ActionEvent): Unit =
-        petri.pole.itr()
-        tickCount += 1
-        if tickCount % TicksPerSeason == 0 then
-          petri.pole.year()
-        petri.repaint()
+        if running then
+          val steps = SpeedLevels(speedIdx)._2
+          var s = 0
+          while s < steps do
+            petri.pole.itr()
+            tickCount += 1
+            if tickCount % TicksPerSeason == 0 then
+              petri.pole.year()
+            s += 1
+          petri.repaint()
+          if genomeWindow.visible then genomeWindow.refresh()
   )
   timer.start()
