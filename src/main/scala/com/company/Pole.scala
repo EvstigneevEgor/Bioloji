@@ -17,6 +17,39 @@ object Pole:
   private val SummerLight = 100
   private val WinterLight = 25
 
+/** Тип действия гена под указателем — для наглядного окна генома. */
+enum GenAction:
+  case Photosynthesis, Step, Divide, Attack, Jump, Idle
+
+/**
+ * Read-only «расшифровка» текущего шага клетки: что за команда стоит под
+ * указателем генома и что она сделает в этот тик. Зеркалит логику [[Pole.itr]],
+ * но НИЧЕГО не меняет в состоянии — нужна только для отрисовки в GenomeWindow.
+ *
+ *  - `pointer`     — индекс текущего гена (`cont % len`);
+ *  - `direction`   — НАСТОЯЩЕЕ направление 1..8 (9 = стоять) для s/e/a;
+ *  - `targetReady` — выполнимо ли действие по соседу (s/e: есть свободная
+ *                    ячейка; a: есть кого атаковать);
+ *  - `feasible`    — хватает ли энергии на команду;
+ *  - `energyCost`  — стоимость команды; `energyGain` — доход (фотосинтез);
+ *  - `nextPointer` — куда уйдёт указатель (для боя — приблизительно);
+ *  - `jumpTo`      — цель «прыжка» bPerehod;
+ *  - `preNote`     — предупреждение до выполнения команды (смерть/перенаселение).
+ */
+case class StepExplanation(
+    pointer: Int,
+    symbol: Char,
+    action: GenAction,
+    direction: Option[Int],
+    targetReady: Option[Boolean],
+    feasible: Boolean,
+    energyCost: Int,
+    energyGain: Int,
+    nextPointer: Int,
+    jumpTo: Option[Int],
+    preNote: Option[String]
+)
+
 /** Игровое поле W x H. n — количество стартовых случайных клеток. */
 class Pole(n: Int, val W: Int, val H: Int):
   import Pole.*
@@ -145,6 +178,82 @@ class Pole(n: Int, val W: Int, val H: Int):
   private def bernvzmzn(kx: Int, ky: Int): Int =
     val free = Bervz.filter(d => neighbor(kx, ky, d).exists((tx, ty) => !occupied(tx, ty)))
     if free.isEmpty then -1 else free(Rng.int(free.length))
+
+  /** Куда уйдёт указатель при «прыжке» bPerehod по символу s (без мутации). */
+  private def jumpTargetOf(k: Kletka, s: Char): Int =
+    val len = k.gen.length
+    val z = k.gen.indexOf(s.toInt)
+    if z < 0 then k.cont % len
+    else
+      val next = (k.cont + z) % len
+      if next != k.cont then next else (k.cont + z + 3) % len
+
+  /**
+   * Read-only расшифровка текущей команды клетки (x, y) для GenomeWindow.
+   * Повторяет ветвление [[itr]], но без побочных эффектов.
+   */
+  def explain(x: Int, y: Int): StepExplanation =
+    val k = matr(x)(y)
+    val gen = k.gen
+    if !k.isLive || gen.isEmpty then
+      StepExplanation(0, ' ', GenAction.Idle, None, None, false, 0, 0, 0, None, None)
+    else
+      val len = gen.length
+      val g = k.cont % len
+      val sym = gen.charAt(g)
+      val preNote =
+        if k.timeLive <= 0 || k.energy <= 0 then Some("клетка погибнет в этот ход")
+        else if k.energy >= ReproduceThreshold then
+          Some("переизбыток энергии — будет принудительное деление")
+        else None
+      sym match
+        case 'f' =>
+          val light = if leto then SummerLight else WinterLight
+          val gain = (H - y) * light / H
+          StepExplanation(g, 'f', GenAction.Photosynthesis, None, None,
+            feasible = true, energyCost = 0, energyGain = gain,
+            nextPointer = (k.cont + 1) % len, jumpTo = None, preNote = preNote)
+
+        case 's' =>
+          if g + 1 < len then
+            val t = k.hash(g + 1) % 9 + 1
+            val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
+            val feasible = k.energy - EnergyForStep >= 0
+            val jump = jumpTargetOf(k, 's')
+            val next = if feasible then (k.cont + t) % len else jump
+            StepExplanation(g, 's', GenAction.Step, Some(t), ready, feasible,
+              EnergyForStep, 0, next, if feasible then None else Some(jump), preNote)
+          else
+            val jump = jumpTargetOf(k, 's')
+            StepExplanation(g, 's', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+
+        case 'e' =>
+          if g + 1 < len then
+            val t = Bervz(k.hash(g + 1) % 4)
+            val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
+            val feasible = k.energy - EnergyForDel >= 0
+            val jump = jumpTargetOf(k, 'e')
+            val next = if feasible then (k.cont + t) % len else jump
+            StepExplanation(g, 'e', GenAction.Divide, Some(t), ready, feasible,
+              EnergyForDel, 0, next, if feasible then None else Some(jump), preNote)
+          else
+            val jump = jumpTargetOf(k, 'e')
+            StepExplanation(g, 'e', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+
+        case 'a' =>
+          if g + 1 < len then
+            val t = Bervz(k.hash(g + 1) % 4)
+            val ready = neighbor(x, y, t).map((tx, ty) => occupied(tx, ty))
+            StepExplanation(g, 'a', GenAction.Attack, Some(t), ready,
+              feasible = true, energyCost = EnergyForStep, energyGain = 0,
+              nextPointer = (k.cont + t) % len, jumpTo = None, preNote = preNote)
+          else
+            val jump = jumpTargetOf(k, 'a')
+            StepExplanation(g, 'a', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+
+        case other =>
+          val jump = jumpTargetOf(k, other)
+          StepExplanation(g, other, GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
 
   /** Клетка по координатам поля — для просмотра генома в отдельном окне. */
   def kletka(w: Int, h: Int): Kletka = matr(w)(h)

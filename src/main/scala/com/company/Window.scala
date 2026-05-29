@@ -38,6 +38,8 @@ class Window extends MainFrame:
     genomeWindow.select(x, y)
     genomeWindow.visible = true
     genomeWindow.peer.toFront()
+  // Кнопка «1 тик» в окне генома — один шаг симуляции на паузе.
+  genomeWindow.onStepOnce = () => stepOnce()
 
   // ── состояние симуляции ──────────────────────────────────
   private var speedIdx  = DefaultSpeedIdx
@@ -145,21 +147,29 @@ class Window extends MainFrame:
 
   size = new Dimension(petri.widthWin + 30, petri.heightWin + 160)
 
+  // ── продвижение симуляции ───────────────────────────────
+  /** Выполнить `steps` шагов симуляции, сменить сезон при необходимости, перерисовать. */
+  private def advance(steps: Int): Unit =
+    var s = 0
+    while s < steps do
+      petri.pole.itr()
+      tickCount += 1
+      if tickCount % TicksPerSeason == 0 then
+        petri.pole.year()
+      s += 1
+    petri.repaint()
+    if genomeWindow.visible then genomeWindow.refresh()
+
+  /** Один шаг симуляции по запросу (ставит на паузу — для пошагового разбора). */
+  def stepOnce(): Unit =
+    running = false
+    advance(1)
+
   // ── таймер симуляции ────────────────────────────────────
   private val timer = new Timer(
     SpeedLevels(speedIdx)._1,
     new ActionListener:
       def actionPerformed(e: ActionEvent): Unit =
-        if running then
-          val steps = SpeedLevels(speedIdx)._2
-          var s = 0
-          while s < steps do
-            petri.pole.itr()
-            tickCount += 1
-            if tickCount % TicksPerSeason == 0 then
-              petri.pole.year()
-            s += 1
-          petri.repaint()
-          if genomeWindow.visible then genomeWindow.refresh()
+        if running then advance(SpeedLevels(speedIdx)._2)
   )
   timer.start()

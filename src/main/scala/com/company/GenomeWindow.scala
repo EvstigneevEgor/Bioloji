@@ -1,10 +1,14 @@
 package com.company
 
-import scala.swing.{Frame, BorderPanel, ScrollPane, TextArea, Label, Dimension}
+import scala.swing.{Action, BorderPanel, BoxPanel, Button, Dimension, FlowPanel, Frame, Label, Orientation, ScrollPane}
 import java.awt.Font
 
 /**
  * Отдельное окно для просмотра генома и состояния выбранной клетки.
+ * Геном показан в стиле Scratch — стопкой «пазлов»: команды f/s/e/a и
+ * цифры-направления. Под стопкой — панель «Почему», объясняющая, что и
+ * почему сделает клетка в текущий ход, и компас направления.
+ *
  * Содержимое привязано к координатам поля и обновляется на каждом тике,
  * показывая ту клетку, что сейчас находится в выбранной ячейке.
  */
@@ -15,20 +19,32 @@ class GenomeWindow(petri: Petri) extends Frame:
   private var cx = -1
   private var cy = -1
 
+  /** Колбэк «сделать один шаг симуляции» (задаёт [[Window]]). */
+  var onStepOnce: () => Unit = () => ()
+
   private val header = new Label
   header.font = new Font("SansSerif", Font.PLAIN, 13)
 
-  private val genArea = new TextArea:
-    editable = false
-    lineWrap = true
-    wordWrap = true
-    font = new Font("Monospaced", Font.PLAIN, 14)
+  private val strip = new GenomeStrip
+  private val explainView = new ExplainView
+
+  // Сырая строка генома мелким моноширинным шрифтом — для справки/копирования.
+  private val rawLabel = new Label(" ")
+  rawLabel.font = new Font("Monospaced", Font.PLAIN, 11)
+  rawLabel.horizontalAlignment = scala.swing.Alignment.Left
+
+  private val btnStep = new Button(Action("\u23ED 1 тик") { onStepOnce() })
+  btnStep.tooltip = "Сделать один шаг симуляции и посмотреть, как сдвинется указатель"
 
   contents = new BorderPanel:
     layout(header) = BorderPanel.Position.North
-    layout(new ScrollPane(genArea)) = BorderPanel.Position.Center
+    layout(new ScrollPane(strip)) = BorderPanel.Position.Center
+    layout(new BoxPanel(Orientation.Vertical) {
+      contents += explainView
+      contents += new FlowPanel(FlowPanel.Alignment.Left)(btnStep, rawLabel)
+    }) = BorderPanel.Position.South
 
-  size = new Dimension(380, 340)
+  size = new Dimension(400, 600)
 
   /** Выбрать клетку по координатам поля и показать её данные. */
   def select(x: Int, y: Int): Unit =
@@ -41,7 +57,9 @@ class GenomeWindow(petri: Petri) extends Frame:
   def refresh(): Unit =
     if cx < 0 || cy < 0 || cx >= petri.pole.W || cy >= petri.pole.H then
       header.text = "Клетка не выбрана"
-      genArea.text = ""
+      strip.update("", -1)
+      explainView.update(None, 0)
+      rawLabel.text = " "
     else
       val k = petri.pole.kletka(cx, cy)
       val kind =
@@ -56,13 +74,12 @@ class GenomeWindow(petri: Petri) extends Frame:
           s"питание: свет ${pct(k.fedLight)}%, " +
           s"хищник ${pct(k.fedPrey)}%, падальщик ${pct(k.fedCorpse)}%</html>"
 
-      if k.gen.nonEmpty then
+      if k.isLive && k.gen.nonEmpty then
         val ptr = k.cont % k.gen.length
-        val marked = k.gen.zipWithIndex
-          .map((ch, i) => if i == ptr then s"[$ch]" else ch.toString)
-          .mkString
-        genArea.text =
-          s"длина генома: ${k.gen.length}\n" +
-            s"указатель: $ptr (отмечен квадратными скобками)\n\n$marked"
+        strip.update(k.gen, ptr)
+        explainView.update(Some(petri.pole.explain(cx, cy)), k.energy)
+        rawLabel.text = s"геном: ${k.gen}"
       else
-        genArea.text = "(нет генома)"
+        strip.update("", -1)
+        explainView.update(None, k.energy)
+        rawLabel.text = if k.gen.nonEmpty then s"геном: ${k.gen}" else " "

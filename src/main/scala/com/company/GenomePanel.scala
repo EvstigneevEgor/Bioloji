@@ -1,0 +1,337 @@
+package com.company
+
+import scala.swing.Component
+import java.awt.{BasicStroke, Color, Dimension, Font, Graphics2D, Rectangle, RenderingHints}
+import java.awt.geom.{Path2D, RoundRectangle2D}
+
+/**
+ * Наглядное представление генома в стиле Scratch: каждый ген — «пазл»-блок,
+ * команды (f/s/e/a) — блоки с выемкой/выступом, цифры-направления — овальные
+ * «значения» со стрелками. Текущий ген (под указателем) подсвечивается.
+ */
+object GenomeView:
+  // ── геометрия стека блоков ──────────────────────────────
+  val ContentW = 360
+  val BlockX   = 40            // левый отступ блока (слева — гаттер с ▶ и №)
+  val BlockW   = ContentW - BlockX - 14
+  val BlockH   = 34
+  val TabH     = 6             // глубина выемки/выступа пазла
+  val Stride   = BlockH        // шаг по вертикали (выступ входит в следующий блок)
+  val PadTop   = 12
+  val PadBottom = TabH + 12
+
+  // ── палитра (согласована с окраской поля в Petri) ───────
+  val ColPhoto = new Color(90, 190, 90)    // f — фотосинтез (зелёный)
+  val ColStep  = new Color(80, 150, 235)   // s — шаг (синий)
+  val ColDiv   = new Color(170, 110, 215)  // e — деление (фиолетовый)
+  val ColAtk   = new Color(225, 95, 95)    // a — атака (красный)
+  val ColDir   = new Color(70, 175, 175)   // 1..8 — направление (бирюзовый)
+  val ColOther = new Color(150, 150, 150)  // прочее
+
+  val PanelBg      = new Color(245, 246, 248)
+  val SlotBg       = new Color(0, 0, 0, 60)
+  val Pointer      = new Color(255, 200, 0)
+  val HiCell       = new Color(255, 170, 40)
+  val GridCell     = new Color(225, 228, 234)
+  val SelfCell     = new Color(120, 124, 134)
+  val TextDark     = new Color(40, 42, 50)
+  val TextWarn     = new Color(200, 90, 40)
+  val TextMuted    = new Color(110, 114, 124)
+
+  val IdxFont   = new Font("SansSerif", Font.BOLD, 11)
+  val GlyphFont = new Font("SansSerif", Font.BOLD, 18)
+  val LabelFont = new Font("SansSerif", Font.BOLD, 13)
+  val SmallFont = new Font("SansSerif", Font.PLAIN, 12)
+  val SlotFont  = new Font("SansSerif", Font.BOLD, 14)
+
+  case class Spec(color: Color, glyph: String, label: String, isCommand: Boolean)
+
+  /** Описание блока по символу генома. Глиф — сам символ гена (виден и в сырой строке). */
+  def specFor(c: Char): Spec = c match
+    case 'f' => Spec(ColPhoto, "f", "Фотосинтез", true)
+    case 's' => Spec(ColStep,  "s", "Шаг", true)
+    case 'e' => Spec(ColDiv,   "e", "Деление", true)
+    case 'a' => Spec(ColAtk,   "a", "Атака", true)
+    case d if d >= '1' && d <= '8' =>
+      Spec(ColDir, arrow(d), s"$d — ${dirName(d - '0')}", false)
+    case _ => Spec(ColOther, c.toString, "—", false)
+
+  /** Стрелка для направления 1..8 (9 — стоять). */
+  def arrow(d: Char): String = arrowOf(d - '0')
+  def arrowOf(d: Int): String = d match
+    case 1 => "\u2191" // ↑
+    case 2 => "\u2197" // ↗
+    case 3 => "\u2192" // →
+    case 4 => "\u2198" // ↘
+    case 5 => "\u2193" // ↓
+    case 6 => "\u2199" // ↙
+    case 7 => "\u2190" // ←
+    case 8 => "\u2196" // ↖
+    case _ => "\u00B7" // ·  (стоять)
+
+  def dirName(d: Int): String = d match
+    case 1 => "вверх"
+    case 2 => "вверх-вправо"
+    case 3 => "вправо"
+    case 4 => "вниз-вправо"
+    case 5 => "вниз"
+    case 6 => "вниз-влево"
+    case 7 => "влево"
+    case 8 => "вверх-влево"
+    case _ => "стоять"
+
+  /** Позиция направления в компасе 3×3: (колонка, строка), либо None (стоять). */
+  def compassCell(d: Int): Option[(Int, Int)] = d match
+    case 1 => Some((1, 0))
+    case 2 => Some((2, 0))
+    case 3 => Some((2, 1))
+    case 4 => Some((2, 2))
+    case 5 => Some((1, 2))
+    case 6 => Some((0, 2))
+    case 7 => Some((0, 1))
+    case 8 => Some((0, 0))
+    case _ => None
+
+/**
+ * Вертикальный стек блоков генома (помещается в ScrollPane).
+ */
+class GenomeStrip extends Component:
+  import GenomeView.*
+
+  private var gen = ""
+  private var pointer = -1
+
+  preferredSize = new Dimension(ContentW, 200)
+
+  /** Обновить геном и позицию указателя; прокрутить указатель в зону видимости. */
+  def update(g: String, ptr: Int): Unit =
+    gen = g
+    pointer = ptr
+    val h = math.max(160, PadTop + g.length * Stride + PadBottom)
+    preferredSize = new Dimension(ContentW, h)
+    peer.revalidate()
+    repaint()
+    if ptr >= 0 && ptr < g.length then
+      val y = PadTop + ptr * Stride
+      peer.scrollRectToVisible(new Rectangle(0, y - 24, ContentW, BlockH + 56))
+
+  override def paintComponent(g2: Graphics2D): Unit =
+    super.paintComponent(g2)
+    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    g2.setColor(PanelBg)
+    g2.fillRect(0, 0, size.width, size.height)
+
+    if gen.isEmpty then
+      g2.setColor(TextMuted)
+      g2.setFont(LabelFont)
+      g2.drawString("(нет генома)", 16, 30)
+      return
+
+    var i = 0
+    while i < gen.length do
+      drawBlock(g2, i)
+      i += 1
+
+  private def drawBlock(g2: Graphics2D, i: Int): Unit =
+    val sym = gen.charAt(i)
+    val spec = specFor(sym)
+    val x = BlockX.toDouble
+    val y = (PadTop + i * Stride).toDouble
+    val w = BlockW.toDouble
+    val h = BlockH.toDouble
+
+    val shape: java.awt.Shape =
+      if spec.isCommand then puzzlePath(x, y, w, h)
+      else new RoundRectangle2D.Double(x + 8, y + 3, w - 16, h - 6, 16, 16)
+
+    g2.setColor(spec.color)
+    g2.fill(shape)
+
+    val isPtr = i == pointer
+    if isPtr then
+      g2.setColor(Pointer)
+      g2.setStroke(new BasicStroke(3f))
+      g2.draw(shape)
+      // маркер ▶ слева
+      val mp = new Path2D.Double
+      val my = y + h / 2
+      mp.moveTo(x - 22, my - 7); mp.lineTo(x - 22, my + 7); mp.lineTo(x - 9, my)
+      mp.closePath()
+      g2.setColor(Pointer)
+      g2.fill(mp)
+    else
+      g2.setColor(spec.color.darker)
+      g2.setStroke(new BasicStroke(1f))
+      g2.draw(shape)
+
+    // номер гена
+    g2.setColor(new Color(255, 255, 255, 200))
+    g2.setFont(IdxFont)
+    g2.drawString(i.toString, BlockX.toInt + 8, (y + h - 9).toInt)
+
+    // глиф
+    g2.setColor(Color.WHITE)
+    g2.setFont(GlyphFont)
+    g2.drawString(spec.glyph, BlockX.toInt + 24, (y + h - 9).toInt)
+
+    // подпись
+    g2.setFont(LabelFont)
+    g2.drawString(spec.label, BlockX.toInt + 50, (y + h - 11).toInt)
+
+    // у команд s/e/a — слот-аргумент: ген, из которого берётся направление
+    if (sym == 's' || sym == 'e' || sym == 'a') && i + 1 < gen.length then
+      val argCh = gen.charAt(i + 1)
+      val sw = 40
+      val sx = (x + w - sw - 8).toInt
+      val sy = (y + 6).toInt
+      g2.setColor(SlotBg)
+      g2.fillRoundRect(sx, sy, sw, BlockH - 12, 12, 12)
+      g2.setColor(Color.WHITE)
+      g2.setFont(SlotFont)
+      val txt = if argCh >= '1' && argCh <= '8' then arrow(argCh) else argCh.toString
+      g2.drawString(txt, sx + 14, sy + BlockH - 18)
+
+  /** Путь «пазла»: сверху вогнутая выемка, снизу выпуклый выступ. */
+  private def puzzlePath(x: Double, y: Double, w: Double, h: Double): Path2D =
+    val r = 8.0
+    val tabW = 18.0
+    val tabX = x + 26
+    val p = new Path2D.Double
+    p.moveTo(x + r, y)
+    p.lineTo(tabX, y)
+    p.lineTo(tabX + 3, y + TabH)
+    p.lineTo(tabX + tabW - 3, y + TabH)
+    p.lineTo(tabX + tabW, y)
+    p.lineTo(x + w - r, y)
+    p.quadTo(x + w, y, x + w, y + r)
+    p.lineTo(x + w, y + h - r)
+    p.quadTo(x + w, y + h, x + w - r, y + h)
+    p.lineTo(tabX + tabW, y + h)
+    p.lineTo(tabX + tabW - 3, y + h + TabH)
+    p.lineTo(tabX + 3, y + h + TabH)
+    p.lineTo(tabX, y + h)
+    p.lineTo(x + r, y + h)
+    p.quadTo(x, y + h, x, y + h - r)
+    p.lineTo(x, y + r)
+    p.quadTo(x, y, x + r, y)
+    p.closePath()
+    p
+
+/**
+ * Панель «Почему»: текст-объяснение текущего шага + компас направления.
+ */
+class ExplainView extends Component:
+  import GenomeView.*
+
+  private var exp: Option[StepExplanation] = None
+  private var energy = 0
+
+  preferredSize = new Dimension(ContentW, 150)
+
+  def update(e: Option[StepExplanation], en: Int): Unit =
+    exp = e
+    energy = en
+    repaint()
+
+  override def paintComponent(g2: Graphics2D): Unit =
+    super.paintComponent(g2)
+    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+    g2.setColor(PanelBg)
+    g2.fillRect(0, 0, size.width, size.height)
+    g2.setColor(new Color(220, 222, 228))
+    g2.drawLine(8, 2, size.width - 8, 2)
+
+    exp match
+      case None =>
+        g2.setColor(TextMuted)
+        g2.setFont(LabelFont)
+        g2.drawString("Клетка не выбрана", 12, 26)
+      case Some(e) =>
+        drawText(g2, e)
+        drawCompass(g2, e)
+
+  private def drawText(g2: Graphics2D, e: StepExplanation): Unit =
+    var y = 22
+    val x = 12
+    e.preNote.foreach { n =>
+      g2.setColor(TextWarn)
+      g2.setFont(LabelFont)
+      g2.drawString("\u26A0 " + n, x, y)
+      y += 22
+    }
+    for (line, col, bold) <- lines(e) do
+      g2.setColor(col)
+      g2.setFont(if bold then LabelFont else SmallFont)
+      g2.drawString(line, x, y)
+      y += 20
+
+  private def lines(e: StepExplanation): Seq[(String, Color, Boolean)] =
+    val dir = e.direction.map(d => s"${arrowOf(d)} ${dirName(d)}").getOrElse("")
+    e.action match
+      case GenAction.Photosynthesis =>
+        Seq(
+          ("Фотосинтез (f)", ColPhoto, true),
+          (s"+${e.energyGain} энергии от света", TextDark, false),
+          (s"указатель → блок ${e.nextPointer}", TextMuted, false)
+        )
+      case GenAction.Step =>
+        val head = (s"Шаг (s) — $dir", ColStep, true)
+        if !e.feasible then
+          Seq(head,
+            (s"мало энергии: $energy < ${e.energyCost} \u2717", TextWarn, false),
+            (s"прыжок указателя → блок ${e.jumpTo.getOrElse(e.nextPointer)}", TextMuted, false))
+        else if e.targetReady.contains(false) then
+          Seq(head, ("сосед занят — стоит на месте", TextMuted, false),
+            (s"энергия не тратится, указатель → блок ${e.nextPointer}", TextMuted, false))
+        else
+          Seq(head, (s"энергия $energy \u2265 ${e.energyCost} \u2713 — переезд", TextDark, false),
+            (s"\u2212${e.energyCost} энергии, указатель → блок ${e.nextPointer}", TextMuted, false))
+      case GenAction.Divide =>
+        val head = (s"Деление (e) — $dir", ColDiv, true)
+        if !e.feasible then
+          Seq(head, (s"мало энергии: $energy < ${e.energyCost} \u2717", TextWarn, false),
+            (s"прыжок указателя → блок ${e.jumpTo.getOrElse(e.nextPointer)}", TextMuted, false))
+        else if e.targetReady.contains(false) then
+          Seq(head, ("сосед занят — потомка некуда поместить", TextMuted, false),
+            (s"указатель → блок ${e.nextPointer}", TextMuted, false))
+        else
+          Seq(head, (s"энергия $energy \u2265 ${e.energyCost} \u2713 — рождается потомок", TextDark, false),
+            (s"\u2212${e.energyCost} энергии, указатель → блок ${e.nextPointer}", TextMuted, false))
+      case GenAction.Attack =>
+        val head = (s"Атака (a) — $dir", ColAtk, true)
+        if e.targetReady.contains(true) then
+          Seq(head, (s"есть цель — атакует (\u2212${e.energyCost})", TextDark, false),
+            (s"указатель → блок ${e.nextPointer} (\u2248)", TextMuted, false))
+        else
+          Seq(head, ("рядом никого — промах", TextMuted, false),
+            (s"указатель → блок ${e.nextPointer} (\u2248)", TextMuted, false))
+      case GenAction.Jump =>
+        Seq(("Цифра/прыжок", ColDir, true),
+          (s"указатель → блок ${e.jumpTo.getOrElse(e.nextPointer)}", TextMuted, false))
+      case GenAction.Idle =>
+        Seq(("нет активной команды", TextMuted, true))
+
+  /** Компас 3×3: клетка в центре, выбранное направление подсвечено. */
+  private def drawCompass(g2: Graphics2D, e: StepExplanation): Unit =
+    val cs = 26
+    val ox = size.width - 3 * cs - 16
+    val oy = 30
+    val hi = e.direction.flatMap(compassCell)
+    for row <- 0 until 3; col <- 0 until 3 do
+      val cx = ox + col * cs
+      val cy = oy + row * cs
+      val center = row == 1 && col == 1
+      val isHi = hi.contains((col, row))
+      g2.setColor(if isHi then HiCell else if center then SelfCell else GridCell)
+      g2.fillRoundRect(cx + 2, cy + 2, cs - 4, cs - 4, 6, 6)
+      if center then
+        g2.setColor(Color.WHITE)
+        g2.setFont(IdxFont)
+        g2.drawString("•", cx + cs / 2 - 2, cy + cs / 2 + 4)
+      else if isHi then
+        g2.setColor(Color.WHITE)
+        g2.setFont(GlyphFont)
+        e.direction.foreach(d => g2.drawString(arrowOf(d), cx + 5, cy + cs - 7))
+    g2.setColor(TextMuted)
+    g2.setFont(new Font("SansSerif", Font.PLAIN, 10))
+    g2.drawString("куда", ox + 2, oy - 6)
