@@ -32,6 +32,7 @@ object GenomeView:
   val SlotBg       = new Color(0, 0, 0, 60)
   val Pointer      = new Color(255, 200, 0)
   val HiCell       = new Color(255, 170, 40)
+  val JumpArc      = new Color(210, 70, 90)   // дуга «прыжка» указателя (bPerehod)
   val GridCell     = new Color(225, 228, 234)
   val SelfCell     = new Color(120, 124, 134)
   val TextDark     = new Color(40, 42, 50)
@@ -80,6 +81,22 @@ object GenomeView:
     case 8 => "вверх-влево"
     case _ => "стоять"
 
+  /**
+   * Если в этот тик случится «прыжок» указателя (bPerehod) — вернуть цель
+   * прыжка и краткое условие, по которому он происходит. None — команда
+   * выполняется обычным образом, перехода по геному нет.
+   */
+  def jumpInfo(e: StepExplanation): Option[(Int, String)] =
+    e.jumpTo.map { target =>
+      val cond = e.action match
+        case GenAction.Step | GenAction.Divide => "не хватает энергии"
+        case GenAction.Jump =>
+          if e.symbol == 's' || e.symbol == 'e' || e.symbol == 'a' then "нет гена-направления"
+          else "ген — не команда"
+        case _ => "переход"
+      (target, cond)
+    }
+
   /** Позиция направления в компасе 3×3: (колонка, строка), либо None (стоять). */
   def compassCell(d: Int): Option[(Int, Int)] = d match
     case 1 => Some((1, 0))
@@ -100,13 +117,16 @@ class GenomeStrip extends Component:
 
   private var gen = ""
   private var pointer = -1
+  // Если в этот тик будет «прыжок» указателя — цель и краткое условие.
+  private var jump: Option[(Int, String)] = None
 
   preferredSize = new Dimension(ContentW, 200)
 
   /** Обновить геном и позицию указателя; прокрутить указатель в зону видимости. */
-  def update(g: String, ptr: Int): Unit =
+  def update(g: String, ptr: Int, jmp: Option[(Int, String)] = None): Unit =
     gen = g
     pointer = ptr
+    jump = jmp
     val h = math.max(160, PadTop + g.length * Stride + PadBottom)
     preferredSize = new Dimension(ContentW, h)
     peer.revalidate()
@@ -131,6 +151,55 @@ class GenomeStrip extends Component:
     while i < gen.length do
       drawBlock(g2, i)
       i += 1
+
+    // Поверх блоков — дуга «прыжка» указателя (если он будет в этот тик).
+    jump.foreach { (target, cond) =>
+      if pointer >= 0 && pointer < gen.length && target >= 0 && target < gen.length then
+        drawJump(g2, pointer, target, cond)
+    }
+
+  /**
+   * Изогнутая стрелка-«прыжок» от блока under-pointer к целевому блоку
+   * (визуализация bPerehod). Рисуется в левом гаттере; рядом — короткая
+   * подпись условия, по которому происходит переход по геному.
+   */
+  private def drawJump(g2: Graphics2D, from: Int, to: Int, label: String): Unit =
+    val fromY = PadTop + from * Stride + BlockH / 2.0
+    val toY   = PadTop + to * Stride + BlockH / 2.0
+    val sx    = BlockX - 4.0
+    val leftX = 8.0
+
+    val path = new Path2D.Double
+    path.moveTo(sx, fromY)
+    path.curveTo(leftX, fromY, leftX, toY, sx, toY)
+    g2.setColor(JumpArc)
+    g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND))
+    g2.draw(path)
+
+    // точка у источника
+    g2.fill(new java.awt.geom.Ellipse2D.Double(sx - 3, fromY - 3, 6, 6))
+
+    // стрелка у цели — указывает вправо, «в» блок
+    val head = new Path2D.Double
+    head.moveTo(sx + 4, toY)
+    head.lineTo(sx - 5, toY - 6)
+    head.lineTo(sx - 5, toY + 6)
+    head.closePath()
+    g2.fill(head)
+
+    // подпись условия прыжка (пилюля у середины дуги)
+    val midY = ((fromY + toY) / 2.0).toInt
+    g2.setFont(SmallFont)
+    val fm = g2.getFontMetrics
+    val tw = fm.stringWidth(label)
+    val px = 4
+    val py = midY - 9
+    g2.setColor(new Color(255, 255, 255, 232))
+    g2.fillRoundRect(px, py, tw + 10, 18, 9, 9)
+    g2.setColor(JumpArc)
+    g2.drawRoundRect(px, py, tw + 10, 18, 9, 9)
+    g2.setColor(TextDark)
+    g2.drawString(label, px + 5, py + 13)
 
   private def drawBlock(g2: Graphics2D, i: Int): Unit =
     val sym = gen.charAt(i)

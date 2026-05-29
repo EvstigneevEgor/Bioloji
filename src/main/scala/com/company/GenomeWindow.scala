@@ -93,8 +93,9 @@ class GenomeWindow(petri: Petri) extends Frame:
 
       if k.isLive && k.gen.nonEmpty then
         val ptr = k.cont % k.gen.length
-        strip.update(k.gen, ptr)
-        explainView.update(Some(petri.pole.explain(cx, cy)), k.energy)
+        val ex = petri.pole.explain(cx, cy)
+        strip.update(k.gen, ptr, GenomeView.jumpInfo(ex))
+        explainView.update(Some(ex), k.energy)
         rawLabel.text = s"геном: ${k.gen}"
       else
         strip.update("", -1)
