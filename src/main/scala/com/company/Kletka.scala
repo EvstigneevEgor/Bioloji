@@ -6,19 +6,26 @@ object Kletka:
   /** Урон атакующему при неудачной атаке (штраф, регулируется из UI). */
   var Retribution = 20
   /** Насколько добыча должна превосходить по энергии, чтобы быть съеденной. */
-  private val PreyAdvantage = 10
+  var PreyAdvantage = 10
   /** Бонус энергии за поедание более слабой клетки (награда, регулируется из UI). */
   var WeakPreyBonus = 400
   /** Бонус энергии за поедание трупа (награда, регулируется из UI). */
   var CorpseBonus = 800
   /** Порог различия геномов (в %), ниже которого клетки считаются роднёй. */
-  private val KinshipThresholdPct = 20
+  var KinshipThresholdPct = 20
   /** Максимальная длина генома. */
-  private val MaxGenLength = 100
+  var MaxGenLength = 100
   /** Шанс мутации «1 из N». */
-  private val MutationChance = 6
+  var MutationChance = 6
   /** Внутри мутации: шанс вставки нового гена «1 из N» (иначе — замена). */
-  private val InsertChance = 5
+  var InsertChance = 5
+
+  /** Счётчик для выдачи уникальных идентификаторов клеткам. */
+  private var idCounter: Long = 0
+  /** Выдать новый уникальный идентификатор живой клетки. */
+  private def freshId(): Long =
+    idCounter += 1
+    idCounter
 
 class Kletka:
   import Kletka.*
@@ -35,6 +42,13 @@ class Kletka:
   var energy: Int = 1
   var timeLive: Int = 1000
   var cont: Int = 0
+
+  /**
+   * Уникальный идентификатор клетки (0 — нет клетки). Сохраняется при
+   * перемещении клетки по полю (repl), чтобы за конкретной клеткой можно
+   * было «следить» в окне генома, а не за фиксированной ячейкой поля.
+   */
+  var id: Long = 0
 
   /**
    * Сколько энергии клетка получила из каждого источника — для окраски
@@ -80,6 +94,7 @@ class Kletka:
     fedLight = 1
     fedPrey = 0
     fedCorpse = 0
+    id = freshId()
 
   def itnew(): Unit =
     active = true
@@ -97,12 +112,16 @@ class Kletka:
     fedLight = src.fedLight
     fedPrey = src.fedPrey
     fedCorpse = src.fedCorpse
+    // Это та же самая клетка, что переехала в новую ячейку — сохраняем её
+    // идентификатор, чтобы окно генома продолжало следить именно за ней.
+    id = src.id
     src.del()
 
   /** Размножение: потомок наследует геном родителя (с шансом мутации). */
   def burn(parent: Kletka): Unit =
     if parent.active && active then
       cont = 0
+      id = freshId()
       gen = parent.gen
       if Rng.int(MutationChance) == 1 then genMut()
       else active = parent.active
@@ -141,7 +160,9 @@ class Kletka:
     state = CellState.Corpse
     justDied = true
     gen = ""
-    energy = 100
+    // Труп сохраняет столько энергии, сколько было у клетки в момент смерти
+    // (но не меньше нуля) — она достанется падальщику при поедании.
+    energy = Math.max(energy, 0)
     timeLive = 100
 
   def del(): Unit =
@@ -152,19 +173,31 @@ class Kletka:
     gen = ""
     energy = 1
     timeLive = 100
+    id = 0
+
+  /**
+   * Поглощение этой клетки/трупа атакующим. Кормовая ценность `gain` —
+   * энергия цели в момент поедания, но не меньше соответствующего бонуса.
+   * Она достаётся атакующему внутри [[repl]] (`energy += src.energy`),
+   * поэтому задаём её здесь, а счётчик питания дополняем у атакующего
+   * (repl копирует именно его значение).
+   */
+  private def devour(attacker: Kletka, gain: Int, prey: Boolean): Unit =
+    energy = gain
+    if prey then attacker.fedPrey += gain
+    else attacker.fedCorpse += gain
+    repl(attacker)
 
   def atack(attacker: Kletka): Unit =
     if !isCorpse then
       if !isParents(attacker) then
         if attacker.energy - PreyAdvantage > energy then
-          attacker.energy += WeakPreyBonus
-          attacker.fedPrey += WeakPreyBonus
-          repl(attacker)
+          // Хищник: энергия добычи, но не меньше «Бонуса за добычу».
+          devour(attacker, Math.max(energy, WeakPreyBonus), prey = true)
         else
           attacker.energy -= Retribution
           if attacker.energy <= 0 then attacker.dead()
           else attacker.cont += 1
     else
-      attacker.energy += CorpseBonus
-      attacker.fedCorpse += CorpseBonus
-      repl(attacker)
+      // Падальщик: энергия трупа, но не меньше «Бонуса за труп».
+      devour(attacker, Math.max(energy, CorpseBonus), prey = false)

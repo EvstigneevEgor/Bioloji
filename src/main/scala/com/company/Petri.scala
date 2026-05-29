@@ -59,6 +59,7 @@ class Petri extends Component:
   def resetPole(): Unit =
     pole = new Pole(4, (widthWin - Margin) / CellSize, (heightWin - Margin) / CellSize)
     selected = None
+    selectedId = 0
 
   preferredSize = new Dimension(widthWin, heightWin + StatusBarHeight)
 
@@ -87,6 +88,11 @@ class Petri extends Component:
 
   /** Текущая выбранная клетка (подсвечивается рамкой на поле). */
   private var selected: Option[(Int, Int)] = None
+  /**
+   * Идентификатор выбранной клетки (0 — выбрана пустая ячейка). Рамка следит
+   * за самой клеткой и переезжает вместе с ней в другую ячейку поля.
+   */
+  private var selectedId: Long = 0
 
   /** Координаты клетки поля под точкой экрана (px, py) с учётом зума/сдвига. */
   def cellAt(px: Int, py: Int): Option[(Int, Int)] =
@@ -169,6 +175,7 @@ class Petri extends Component:
       if !dragged && e.clicks == 1 then
         cellAt(e.point.x, e.point.y).foreach { (x, y) =>
           selected = Some((x, y))
+          selectedId = pole.idAt(x, y)
           onSelectCell(x, y)
           repaint()
         }
@@ -277,6 +284,15 @@ class Petri extends Component:
               gf.fillRect(i, j, CellSize, CellSize)
           y += 1
         x += 1
+
+      // Если следим за конкретной клеткой — обновляем положение рамки вслед
+      // за её перемещением; клетка исчезла — снимаем выделение.
+      if selectedId != 0 then
+        pole.findById(selectedId) match
+          case Some(pos) => selected = Some(pos)
+          case None =>
+            selected = None
+            selectedId = 0
 
       // Рамка вокруг выбранной клетки — чтобы видеть, чей геном открыт.
       selected.foreach { (sx, sy) =>

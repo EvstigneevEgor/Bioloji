@@ -6,9 +6,6 @@ import java.awt.event.{ActionEvent, ActionListener}
 import java.awt.Font
 
 object Window:
-  /** Каждые сколько тиков меняется сезон. */
-  private val TicksPerSeason = 200
-
   /** Уровни скорости: (задержка мс, шагов за тик, название). */
   private val SpeedLevels: Array[(Int, Int, String)] = Array(
     (240, 1, "0.25x"),
@@ -18,7 +15,9 @@ object Window:
     (15,  1, "4x"),
     (15,  2, "8x"),
     (15,  4, "16x"),
-    (15,  8, "32x")
+    (15,  8, "32x"),
+    (15,  1, "64x"),
+    (15,  8, "128x")
   )
   /** Индекс скорости по умолчанию (1x). */
   private val DefaultSpeedIdx = 2
@@ -86,8 +85,15 @@ class Window extends MainFrame:
   // Сброс масштаба/сдвига поля к виду «всё целиком».
   private val btnResetView = new Button(Action("1:1") { petri.resetView() })
 
+  // Отдельное окно настроек всех параметров симуляции.
+  private val settingsWindow = new SettingsWindow
+  private val btnSettings = new Button(Action("\u2699") {
+    settingsWindow.visible = true
+    settingsWindow.peer.toFront()
+  })
+
   locally {
-    for btn <- Seq(btnPlay, btnPause, btnStop, btnFast, btnSlow, btnMax, btnMin, btnResetView) do
+    for btn <- Seq(btnPlay, btnPause, btnStop, btnFast, btnSlow, btnMax, btnMin, btnResetView, btnSettings) do
       btn.font = btnFont
     btnPlay.tooltip      = "Запуск"
     btnPause.tooltip     = "Пауза"
@@ -97,47 +103,17 @@ class Window extends MainFrame:
     btnMax.tooltip       = "Макс. скорость"
     btnMin.tooltip       = "Мин. скорость"
     btnResetView.tooltip = "Сброс вида (масштаб 1:1)"
+    btnSettings.tooltip  = "Настройки симуляции (сезоны, солнце, энергия, …)"
   }
 
   // ── панель управления ───────────────────────────────────
   private val controlPanel = new FlowPanel(
-    btnSlow, btnMin, btnPlay, btnPause, btnStop, btnMax, btnFast, speedLabel, btnResetView
-  )
-
-  // ── регулировка вознаграждений ──────────────────────────
-  /**
-   * Строит блок «− [значение] +» для регулировки одного параметра-награды.
-   * get/set читают и записывают изменяемую переменную в объекте Kletka,
-   * чтобы изменения немедленно влияли на симуляцию.
-   */
-  private def rewardControl(
-      name: String, get: () => Int, set: Int => Unit, step: Int, min: Int
-  ): FlowPanel =
-    val value = new Label(get().toString)
-    value.font = new Font("SansSerif", Font.BOLD, 13)
-    def refresh(): Unit = value.text = get().toString
-    val minus = new Button(Action("\u2212") {
-      set(math.max(min, get() - step)); refresh()
-    })
-    val plus = new Button(Action("+") { set(get() + step); refresh() })
-    val caption = new Label(s"$name:")
-    caption.font = new Font("SansSerif", Font.PLAIN, 12)
-    for b <- Seq(minus, plus) do b.font = new Font("SansSerif", Font.BOLD, 14)
-    new FlowPanel(caption, minus, value, plus)
-
-  private val rewardPanel = new FlowPanel(
-    rewardControl("Труп (падальщик)",
-      () => Kletka.CorpseBonus, v => Kletka.CorpseBonus = v, step = 100, min = 0),
-    rewardControl("Добыча (хищник)",
-      () => Kletka.WeakPreyBonus, v => Kletka.WeakPreyBonus = v, step = 100, min = 0),
-    rewardControl("Штраф за атаку",
-      () => Kletka.Retribution, v => Kletka.Retribution = v, step = 5, min = 0)
+    btnSlow, btnMin, btnPlay, btnPause, btnStop, btnMax, btnFast, speedLabel, btnResetView, btnSettings
   )
 
   // ── компоновка ──────────────────────────────────────────
   private val southPanel = new BoxPanel(Orientation.Vertical) {
     contents += controlPanel
-    contents += rewardPanel
   }
 
   contents = new BorderPanel {
@@ -145,7 +121,7 @@ class Window extends MainFrame:
     layout(southPanel) = BorderPanel.Position.South
   }
 
-  size = new Dimension(petri.widthWin + 30, petri.heightWin + 160)
+  size = new Dimension(petri.widthWin + 30, petri.heightWin + 120)
 
   // ── продвижение симуляции ───────────────────────────────
   /** Выполнить `steps` шагов симуляции, сменить сезон при необходимости, перерисовать. */
@@ -154,8 +130,7 @@ class Window extends MainFrame:
     while s < steps do
       petri.pole.itr()
       tickCount += 1
-      if tickCount % TicksPerSeason == 0 then
-        petri.pole.year()
+      petri.pole.advanceSeason()
       s += 1
     petri.repaint()
     if genomeWindow.visible then genomeWindow.refresh()

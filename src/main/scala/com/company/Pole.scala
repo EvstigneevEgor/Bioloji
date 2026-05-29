@@ -1,21 +1,25 @@
 package com.company
 
 object Pole:
-  private val EnergyForDel = 150
-  private val EnergyForStep = 250
+  /** Стоимость деления и шага/атаки (регулируется из окна настроек). */
+  var EnergyForDel = 150
+  var EnergyForStep = 250
   /** Порог энергии для принудительного деления и его стоимость. */
-  private val ReproduceThreshold = EnergyForDel * 50
-  private val ForcedReproduceCost = EnergyForDel * 40
+  var ReproduceThreshold = 150 * 50
+  var ForcedReproduceCost = 150 * 40
   /** Энергия стартовых клеток. */
-  private val StartEnergy = 150
+  var StartEnergy = 150
   /** Стартовые геномы для случайных клеток. */
   private val StartGenes =
     Array("fffffffffffffffffffff", "ffffffffffffffff", "f", "f", "f", "f", "f", "f")
   /** Допустимые направления для размножения/атаки. */
   private val Bervz = Array(1, 3, 5, 7)
-  /** Множители фотосинтеза летом/зимой: energy += (H - j) * mult / H. */
-  private val SummerLight = 100
-  private val WinterLight = 25
+  /** Максимальное «солнце» (фотосинтез) летом/зимой: energy += (H - j) * mult / H. */
+  var SummerLight = 100
+  var WinterLight = 25
+  /** Длительность лета и зимы в тиках симуляции. */
+  var SummerTicks = 200
+  var WinterTicks = 200
 
 /** Тип действия гена под указателем — для наглядного окна генома. */
 enum GenAction:
@@ -58,6 +62,9 @@ class Pole(n: Int, val W: Int, val H: Int):
   val matr: Array[Array[Kletka]] = Array.tabulate(W, H)((_, _) => new Kletka)
 
   var leto: Boolean = true
+
+  /** Сколько тиков осталось до смены текущего сезона. */
+  private var seasonLeft: Int = SummerTicks
 
   locally {
     var o = 0
@@ -258,6 +265,26 @@ class Pole(n: Int, val W: Int, val H: Int):
   /** Клетка по координатам поля — для просмотра генома в отдельном окне. */
   def kletka(w: Int, h: Int): Kletka = matr(w)(h)
 
+  /** Идентификатор клетки в ячейке (0 — пусто) — чтобы «привязаться» к клетке. */
+  def idAt(w: Int, h: Int): Long = matr(w)(h).id
+
+  /**
+   * Найти текущие координаты клетки по её идентификатору.
+   * Нужна, чтобы следить за конкретной клеткой, которая может перемещаться
+   * по полю, а не за фиксированной ячейкой.
+   */
+  def findById(id: Long): Option[(Int, Int)] =
+    if id == 0 then None
+    else
+      var i = 0
+      while i < W do
+        var j = 0
+        while j < H do
+          if matr(i)(j).id == id then return Some((i, j))
+          j += 1
+        i += 1
+      None
+
   def getLive(w: Int, h: Int): Boolean = matr(w)(h).isLive
   def getDead(w: Int, h: Int): Boolean = matr(w)(h).isDead
   def isCorpse(w: Int, h: Int): Boolean = matr(w)(h).isCorpse
@@ -281,4 +308,16 @@ class Pole(n: Int, val W: Int, val H: Int):
   /** Максимально возможная освещённость (летний потолок) — для нормировки цвета. */
   def maxLight: Int = SummerLight
 
-  def year(): Unit = leto = !leto
+  /** Принудительная смена сезона (сбрасывает таймер на длительность нового). */
+  def year(): Unit =
+    leto = !leto
+    seasonLeft = if leto then SummerTicks else WinterTicks
+
+  /**
+   * Тик сезонного таймера: уменьшает остаток текущего сезона и меняет
+   * сезон, когда он истёк. Длительность лета и зимы задаётся независимо
+   * ([[Pole.SummerTicks]] / [[Pole.WinterTicks]]).
+   */
+  def advanceSeason(): Unit =
+    seasonLeft -= 1
+    if seasonLeft <= 0 then year()
