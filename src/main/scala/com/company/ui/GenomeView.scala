@@ -1,8 +1,9 @@
-package com.company
+package com.company.ui
 
 import scala.swing.Component
 import java.awt.{BasicStroke, Color, Dimension, Font, Graphics2D, Rectangle, RenderingHints}
 import java.awt.geom.{Path2D, RoundRectangle2D}
+import com.company.domain.{GenAction, StepExplanation}
 
 /**
  * Наглядное представление генома в стиле Scratch: каждый ген — «пазл»-блок,
@@ -20,11 +21,12 @@ object GenomeView:
   val PadTop   = 12
   val PadBottom = TabH + 12
 
-  // ── палитра (согласована с окраской поля в Petri) ───────
+  // ── палитра (согласована с окраской поля в FieldColors) ─
   val ColPhoto = new Color(90, 190, 90)    // f — фотосинтез (зелёный)
   val ColStep  = new Color(80, 150, 235)   // s — шаг (синий)
   val ColDiv   = new Color(170, 110, 215)  // e — деление (фиолетовый)
   val ColAtk   = new Color(225, 95, 95)    // a — атака (красный)
+  val ColScav  = new Color(80, 120, 245)   // c — падальщик (синий, как DietCorpse)
   val ColDir   = new Color(70, 175, 175)   // 1..8 — направление (бирюзовый)
   val ColOther = new Color(150, 150, 150)  // прочее
 
@@ -32,7 +34,7 @@ object GenomeView:
   val SlotBg       = new Color(0, 0, 0, 60)
   val Pointer      = new Color(255, 200, 0)
   val HiCell       = new Color(255, 170, 40)
-  val JumpArc      = new Color(210, 70, 90)   // дуга «прыжка» указателя (bPerehod)
+  val JumpArc      = new Color(210, 70, 90)   // дуга «прыжка» указателя (jump)
   val GridCell     = new Color(225, 228, 234)
   val SelfCell     = new Color(120, 124, 134)
   val TextDark     = new Color(40, 42, 50)
@@ -47,67 +49,32 @@ object GenomeView:
 
   case class Spec(color: Color, glyph: String, label: String, isCommand: Boolean)
 
-  /** Описание блока по символу генома. Глиф — сам символ гена (виден и в сырой строке). */
+  /** Описание блока по символу генома. Глиф — сам символ гена. */
   def specFor(c: Char): Spec = c match
     case 'f' => Spec(ColPhoto, "f", "Фотосинтез", true)
     case 's' => Spec(ColStep,  "s", "Шаг", true)
     case 'e' => Spec(ColDiv,   "e", "Деление", true)
     case 'a' => Spec(ColAtk,   "a", "Атака", true)
+    case 'c' => Spec(ColScav,  "c", "Падальщик", true)
     case d if d >= '1' && d <= '8' =>
-      Spec(ColDir, arrow(d), s"$d — ${dirName(d - '0')}", false)
+      Spec(ColDir, DirectionView.arrowOf(d), s"$d — ${DirectionView.name(d - '0')}", false)
     case _ => Spec(ColOther, c.toString, "—", false)
 
-  /** Стрелка для направления 1..8 (9 — стоять). */
-  def arrow(d: Char): String = arrowOf(d - '0')
-  def arrowOf(d: Int): String = d match
-    case 1 => "\u2191" // ↑
-    case 2 => "\u2197" // ↗
-    case 3 => "\u2192" // →
-    case 4 => "\u2198" // ↘
-    case 5 => "\u2193" // ↓
-    case 6 => "\u2199" // ↙
-    case 7 => "\u2190" // ←
-    case 8 => "\u2196" // ↖
-    case _ => "\u00B7" // ·  (стоять)
-
-  def dirName(d: Int): String = d match
-    case 1 => "вверх"
-    case 2 => "вверх-вправо"
-    case 3 => "вправо"
-    case 4 => "вниз-вправо"
-    case 5 => "вниз"
-    case 6 => "вниз-влево"
-    case 7 => "влево"
-    case 8 => "вверх-влево"
-    case _ => "стоять"
-
   /**
-   * Если в этот тик случится «прыжок» указателя (bPerehod) — вернуть цель
-   * прыжка и краткое условие, по которому он происходит. None — команда
-   * выполняется обычным образом, перехода по геному нет.
+   * Если в этот тик случится «прыжок» указателя (jump) — вернуть цель прыжка
+   * и краткое условие, по которому он происходит. None — команда выполняется
+   * обычным образом, перехода по геному нет.
    */
   def jumpInfo(e: StepExplanation): Option[(Int, String)] =
     e.jumpTo.map { target =>
       val cond = e.action match
         case GenAction.Step | GenAction.Divide => "не хватает энергии"
         case GenAction.Jump =>
-          if e.symbol == 's' || e.symbol == 'e' || e.symbol == 'a' then "нет цифры-направления"
+          if "seac".contains(e.symbol) then "нет цифры-направления"
           else "ген — не команда"
         case _ => "переход"
       (target, cond)
     }
-
-  /** Позиция направления в компасе 3×3: (колонка, строка), либо None (стоять). */
-  def compassCell(d: Int): Option[(Int, Int)] = d match
-    case 1 => Some((1, 0))
-    case 2 => Some((2, 0))
-    case 3 => Some((2, 1))
-    case 4 => Some((2, 2))
-    case 5 => Some((1, 2))
-    case 6 => Some((0, 2))
-    case 7 => Some((0, 1))
-    case 8 => Some((0, 0))
-    case _ => None
 
 /**
  * Вертикальный стек блоков генома (помещается в ScrollPane).
@@ -159,9 +126,8 @@ class GenomeStrip extends Component:
     }
 
   /**
-   * Изогнутая стрелка-«прыжок» от блока under-pointer к целевому блоку
-   * (визуализация bPerehod). Рисуется в левом гаттере; рядом — короткая
-   * подпись условия, по которому происходит переход по геному.
+   * Изогнутая стрелка-«прыжок» от блока under-pointer к целевому блоку.
+   * Рисуется в левом гаттере; рядом — короткая подпись условия перехода.
    */
   private def drawJump(g2: Graphics2D, from: Int, to: Int, label: String): Unit =
     val fromY = PadTop + from * Stride + BlockH / 2.0
@@ -247,8 +213,8 @@ class GenomeStrip extends Component:
     g2.setFont(LabelFont)
     g2.drawString(spec.label, BlockX.toInt + 50, (y + h - 11).toInt)
 
-    // у команд s/e/a — слот-аргумент: ген, из которого берётся направление
-    if (sym == 's' || sym == 'e' || sym == 'a') && i + 1 < gen.length then
+    // у команд s/e/a/c — слот-аргумент: ген, из которого берётся направление
+    if "seac".contains(sym) && i + 1 < gen.length then
       val argCh = gen.charAt(i + 1)
       val sw = 40
       val sx = (x + w - sw - 8).toInt
@@ -257,7 +223,7 @@ class GenomeStrip extends Component:
       g2.fillRoundRect(sx, sy, sw, BlockH - 12, 12, 12)
       g2.setColor(Color.WHITE)
       g2.setFont(SlotFont)
-      val txt = if argCh >= '1' && argCh <= '8' then arrow(argCh) else argCh.toString
+      val txt = if argCh >= '1' && argCh <= '8' then DirectionView.arrowOf(argCh) else argCh.toString
       g2.drawString(txt, sx + 14, sy + BlockH - 18)
 
   /** Путь «пазла»: сверху вогнутая выемка, снизу выпуклый выступ. */
@@ -335,7 +301,7 @@ class ExplainView extends Component:
       y += 20
 
   private def lines(e: StepExplanation): Seq[(String, Color, Boolean)] =
-    val dir = e.direction.map(d => s"${arrowOf(d)} ${dirName(d)}").getOrElse("")
+    val dir = e.direction.map(d => s"${DirectionView.arrow(d)} ${DirectionView.name(d)}").getOrElse("")
     e.action match
       case GenAction.Photosynthesis =>
         Seq(
@@ -374,6 +340,14 @@ class ExplainView extends Component:
         else
           Seq(head, ("рядом никого — промах", TextMuted, false),
             (s"указатель → блок ${e.nextPointer} (\u2248)", TextMuted, false))
+      case GenAction.Scavenge =>
+        val head = (s"Падальщик (c) — ищет труп (предпочёт $dir)", ColScav, true)
+        if e.targetReady.contains(true) then
+          Seq(head, (s"рядом есть труп — съедает (\u2212${e.energyCost})", TextDark, false),
+            (s"указатель → блок ${e.nextPointer} (\u2248)", TextMuted, false))
+        else
+          Seq(head, ("трупов рядом нет — промах без затрат", TextMuted, false),
+            (s"указатель → блок ${e.nextPointer} (\u2248)", TextMuted, false))
       case GenAction.Jump =>
         Seq(("Цифра/прыжок", ColDir, true),
           (s"указатель → блок ${e.jumpTo.getOrElse(e.nextPointer)}", TextMuted, false))
@@ -385,7 +359,7 @@ class ExplainView extends Component:
     val cs = 26
     val ox = size.width - 3 * cs - 16
     val oy = 30
-    val hi = e.direction.flatMap(compassCell)
+    val hi = e.direction.flatMap(DirectionView.compassCell)
     for row <- 0 until 3; col <- 0 until 3 do
       val cx = ox + col * cs
       val cy = oy + row * cs
@@ -400,7 +374,7 @@ class ExplainView extends Component:
       else if isHi then
         g2.setColor(Color.WHITE)
         g2.setFont(GlyphFont)
-        e.direction.foreach(d => g2.drawString(arrowOf(d), cx + 5, cy + cs - 7))
+        e.direction.foreach(d => g2.drawString(DirectionView.arrow(d), cx + 5, cy + cs - 7))
     g2.setColor(TextMuted)
     g2.setFont(new Font("SansSerif", Font.PLAIN, 10))
     g2.drawString("куда", ox + 2, oy - 6)

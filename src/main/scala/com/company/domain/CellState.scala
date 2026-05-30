@@ -1,4 +1,4 @@
-package com.company
+package com.company.domain
 
 /**
  * Состояние ячейки поля. Заменяет прежний набор перекрывающихся булевых
