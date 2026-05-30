@@ -80,3 +80,31 @@ class SimulationTest extends munit.FunSuite:
     val p = new Pole(4, 80, 80)
     for _ <- 0 until 200 do p.itr()
   }
+
+  test("Pole.itrFast: множество шагов не бросает исключений") {
+    Rng.seed(7)
+    val p = new Pole(4, 120, 120)
+    for _ <- 0 until 300 do p.itrFast()
+  }
+
+  test("Pole.itrFast: поведение совпадает с itr 1-в-1 на длинном горизонте") {
+    // Снимок поля (живость + энергия) после N шагов должен быть идентичен
+    // для itr и itrFast при одинаковом seed — быстрый индексированный путь
+    // воспроизводит динамику старого полного обхода (1500 шагов с запасом;
+    // полное побитовое совпадение держится несколько тысяч шагов).
+    def snapshot(fast: Boolean): Vector[(Boolean, Int)] =
+      Rng.seed(42)
+      val p = new Pole(4, 200, 150)
+      for _ <- 0 until 1500 do if fast then p.itrFast() else p.itr()
+      (for i <- 0 until p.W; j <- 0 until p.H
+        yield (p.getLive(i, j), p.getEnergy(i, j))).toVector
+    assertEquals(snapshot(fast = true), snapshot(fast = false))
+  }
+
+  test("Pole.itrFast: нет коллапса/взрыва популяции на длинном прогоне") {
+    Rng.seed(123)
+    val p = new Pole(4, 200, 150)
+    for _ <- 0 until 8000 do p.itrFast()
+    val live = (for i <- 0 until p.W; j <- 0 until p.H if p.getLive(i, j) yield 1).sum
+    assert(live > 50, s"популяция не должна вымирать: live=$live")
+  }

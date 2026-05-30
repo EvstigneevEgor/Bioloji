@@ -11,6 +11,11 @@ object Kletka:
   var WeakPreyBonus = 400
   /** Бонус энергии за поедание трупа (награда, регулируется из UI). */
   var CorpseBonus = 800
+  /**
+   * Через сколько тиков труп исчезает с поля сам по себе (если его не съели).
+   * `-1` — трупы не исчезают никогда (поведение по умолчанию).
+   */
+  var CorpseDecayTicks = -1
   /** Порог различия геномов (в %), ниже которого клетки считаются роднёй. */
   var KinshipThresholdPct = 20
   /** Максимальная длина генома. */
@@ -20,12 +25,20 @@ object Kletka:
   /** Внутри мутации: шанс вставки нового гена «1 из N» (иначе — замена). */
   var InsertChance = 5
 
-  /** Счётчик для выдачи уникальных идентификаторов клеткам. */
-  private var idCounter: Long = 0
+  /** Коды состояния для трекера индекса (см. [[Kletka.tracker]]). */
+  inline val StEmpty = 0
+  inline val StAlive = 1
+  inline val StCorpse = 2
+
+  /**
+   * Счётчик для выдачи уникальных идентификаторов клеткам. Атомарный, потому
+   * что в многопоточном режиме `freshId()` вызывается из нескольких потоков
+   * одновременно (рождение/перемещение клеток в разных полосах поля).
+   */
+  private val idCounter: java.util.concurrent.atomic.AtomicLong =
+    new java.util.concurrent.atomic.AtomicLong(0)
   /** Выдать новый уникальный идентификатор живой клетки. */
-  private def freshId(): Long =
-    idCounter += 1
-    idCounter
+  private def freshId(): Long = idCounter.incrementAndGet()
 
 class Kletka:
   import Kletka.*
@@ -42,6 +55,8 @@ class Kletka:
   var energy: Int = 1
   var timeLive: Int = 1000
   var cont: Int = 0
+  /** Сколько тиков клетка пробыла трупом — для «тлеющего» исчезновения. */
+  private var corpseAge: Int = 0
 
   /**
    * Уникальный идентификатор клетки (0 — нет клетки). Сохраняется при
@@ -58,6 +73,18 @@ class Kletka:
   var fedPrey: Int = 0
   var fedCorpse: Int = 0
 
+  /**
+   * Фиксированные координаты ячейки на поле и колбэк-«трекер» индекса живых
+   * клеток. Заполняются полем [[Pole]] при создании; по умолчанию — заглушка,
+   * чтобы клетки в тестах работали без индекса. Код состояния:
+   * [[Kletka.StAlive]] — стала живой, [[Kletka.StCorpse]] — стала трупом,
+   * [[Kletka.StEmpty]] — опустела.
+   */
+  var px: Int = -1
+  var py: Int = -1
+  var tracker: (Int, Int, Int) => Unit = (_, _, _) => ()
+  private inline def track(stateCode: Int): Unit = tracker(px, py, stateCode)
+
   def isLive: Boolean = state == CellState.Alive
   def isDead: Boolean = justDied
   def isCorpse: Boolean = state == CellState.Corpse
@@ -73,9 +100,6 @@ class Kletka:
     val z = gen.indexOf(s.toInt) // s присутствует в геноме, поэтому z >= 0
     val next = (cont + z) % len
     cont = if next != cont then next else (cont + z + 3) % len
-
-  def hash(s: Int): Int =
-    (cont + gen.indexOf(gen.charAt(s).toInt)) % gen.length
 
   /** Считаются «роднёй», если различие геномов меньше порога. */
   def isParents(k: Kletka): Boolean =
@@ -95,11 +119,36 @@ class Kletka:
     fedPrey = 0
     fedCorpse = 0
     id = freshId()
+    track(StAlive)
 
   def itnew(): Unit =
     active = true
     justDied = false
     justBorn = false
+
+  /**
+   * Гравитация: переместить содержимое этой ячейки (живой клетки ИЛИ трупа)
+   * в ячейку `dst`, сохранив состояние и все поля без изменений (энергия,
+   * возраст, идентификатор и т.д.). Текущая ячейка становится пустой.
+   * В отличие от [[repl]], не меняет состояние на «живое» — поэтому годится
+   * и для падения трупов.
+   */
+  def fallInto(dst: Kletka): Unit =
+    dst.state = state
+    dst.active = active
+    dst.justBorn = justBorn
+    dst.justDied = justDied
+    dst.gen = gen
+    dst.energy = energy
+    dst.timeLive = timeLive
+    dst.cont = cont
+    dst.corpseAge = corpseAge
+    dst.id = id
+    dst.fedLight = fedLight
+    dst.fedPrey = fedPrey
+    dst.fedCorpse = fedCorpse
+    dst.track(if state == CellState.Alive then StAlive else StCorpse)
+    del()
 
   /** Перемещение: клетка-источник переезжает в эту ячейку. */
   def repl(src: Kletka): Unit =
@@ -115,6 +164,7 @@ class Kletka:
     // Это та же самая клетка, что переехала в новую ячейку — сохраняем её
     // идентификатор, чтобы окно генома продолжало следить именно за ней.
     id = src.id
+    track(StAlive)
     src.del()
 
   /** Размножение: потомок наследует геном родителя (с шансом мутации). */
@@ -143,6 +193,7 @@ class Kletka:
         fedLight = 1
         fedPrey = 0
         fedCorpse = 0
+      track(StAlive)
 
   private def genMut(): Unit =
     if Rng.int(InsertChance) == 1 && gen.length < MaxGenLength then
@@ -163,7 +214,19 @@ class Kletka:
     // Труп сохраняет столько энергии, сколько было у клетки в момент смерти
     // (но не меньше нуля) — она достанется падальщику при поедании.
     energy = Math.max(energy, 0)
-    timeLive = 100
+    corpseAge = 0
+    track(StCorpse)
+
+  /**
+   * «Тление» трупа: каждый тик увеличивает возраст трупа, и когда он
+   * достигает [[Kletka.CorpseDecayTicks]] — труп исчезает (становится пустой
+   * ячейкой). При `CorpseDecayTicks < 0` трупы не исчезают никогда.
+   * Вызывается на трупах из [[Pole.processCell]] каждый тик.
+   */
+  def ageCorpse(): Unit =
+    if CorpseDecayTicks >= 0 then
+      corpseAge += 1
+      if corpseAge >= CorpseDecayTicks then del()
 
   def del(): Unit =
     cont = 0
@@ -173,7 +236,9 @@ class Kletka:
     gen = ""
     energy = 1
     timeLive = 100
+    corpseAge = 0
     id = 0
+    track(StEmpty)
 
   /**
    * Поглощение этой клетки/трупа атакующим. Кормовая ценность `gain` —

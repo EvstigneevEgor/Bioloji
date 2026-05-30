@@ -6,21 +6,32 @@ import java.awt.event.{ActionEvent, ActionListener}
 import java.awt.Font
 
 object Window:
-  /** Уровни скорости: (задержка мс, шагов за тик, название). */
-  private val SpeedLevels: Array[(Int, Int, String)] = Array(
-    (240, 1, "0.25x"),
-    (120, 1, "0.5x"),
-    (60,  1, "1x"),
-    (30,  1, "2x"),
-    (15,  1, "4x"),
-    (15,  2, "8x"),
-    (15,  4, "16x"),
-    (15,  8, "32x"),
-    (15,  1, "64x"),
-    (15,  8, "128x")
+  /** Базовая частота «1x» в шагах/сек (исторически 60 мс на тик). */
+  private val BaseRate = 1000.0 / 60.0
+
+  /** Уровни скорости: (название, целевая частота шагов/сек; ∞ = без ограничения). */
+  private val SpeedLevels: Array[(String, Double)] = Array(
+    ("0.25x", 0.25 * BaseRate),
+    ("0.5x",  0.5 * BaseRate),
+    ("1x",    1 * BaseRate),
+    ("2x",    2 * BaseRate),
+    ("4x",    4 * BaseRate),
+    ("8x",    8 * BaseRate),
+    ("16x",   16 * BaseRate),
+    ("32x",   32 * BaseRate),
+    ("64x",   64 * BaseRate),
+    ("128x",  128 * BaseRate),
+    ("256x",  256 * BaseRate),
+    ("512x",  512 * BaseRate),
+    ("1024x", 1024 * BaseRate),
+    ("2048x", 2048 * BaseRate),
+    ("\u221E", Double.PositiveInfinity)
   )
   /** Индекс скорости по умолчанию (1x). */
   private val DefaultSpeedIdx = 2
+
+  /** Частота перерисовки экрана (кадров/сек) — независима от скорости симуляции. */
+  private val RenderFps = 30
 
 /** Главное окно с панелью управления симуляцией. */
 class Window extends MainFrame:
@@ -41,39 +52,39 @@ class Window extends MainFrame:
   genomeWindow.onStepOnce = () => stepOnce()
 
   // ── состояние симуляции ──────────────────────────────────
-  private var speedIdx  = DefaultSpeedIdx
-  private var running   = true
-  private var tickCount = 0
+  @volatile private var speedIdx  = DefaultSpeedIdx
+  @volatile private var running   = true
+  @volatile private var tickCount = 0
+
+  // Замок для безопасной замены/сброса поля между шагами симуляции.
+  private val simLock = new AnyRef
 
   // ── индикатор скорости ──────────────────────────────────
-  private val speedLabel = new Label(s" Скорость: ${SpeedLevels(speedIdx)._3} ")
+  private val speedLabel = new Label(s" Скорость: ${SpeedLevels(speedIdx)._1} ")
   speedLabel.font = new Font("SansSerif", Font.BOLD, 13)
 
   private def updateSpeedLabel(): Unit =
-    speedLabel.text = s" Скорость: ${SpeedLevels(speedIdx)._3} "
+    speedLabel.text = s" Скорость: ${SpeedLevels(speedIdx)._1} "
 
   private def setSpeed(idx: Int): Unit =
     speedIdx = math.max(0, math.min(idx, SpeedLevels.length - 1))
-    timer.setDelay(SpeedLevels(speedIdx)._1)
     updateSpeedLabel()
+
+  /** Текущая целевая частота шагов/сек (∞ — без ограничения). */
+  private def currentRate: Double = SpeedLevels(speedIdx)._2
 
   // ── кнопки управления ───────────────────────────────────
   private val btnFont = new Font("SansSerif", Font.PLAIN, 18)
 
-  private val btnPlay = new Button(Action("\u25B6") {
-    running = true
-    if !timer.isRunning then timer.start()
-  })
-
-  private val btnPause = new Button(Action("\u23F8") {
-    running = false
-  })
+  private val btnPlay = new Button(Action("\u25B6") { running = true })
+  private val btnPause = new Button(Action("\u23F8") { running = false })
 
   private val btnStop = new Button(Action("\u23F9") {
     running = false
-    timer.stop()
-    tickCount = 0
-    petri.resetPole()
+    simLock.synchronized {
+      tickCount = 0
+      petri.resetPole()
+    }
     petri.repaint()
   })
 
@@ -86,7 +97,7 @@ class Window extends MainFrame:
   private val btnResetView = new Button(Action("1:1") { petri.resetView() })
 
   // Отдельное окно настроек всех параметров симуляции.
-  private val settingsWindow = new SettingsWindow
+  private val settingsWindow = new SettingsWindow(() => simLock.synchronized { petri.resetPole() })
   private val btnSettings = new Button(Action("\u2699") {
     settingsWindow.visible = true
     settingsWindow.peer.toFront()
@@ -100,10 +111,10 @@ class Window extends MainFrame:
     btnStop.tooltip      = "Стоп (сброс симуляции)"
     btnFast.tooltip      = "Ускорить"
     btnSlow.tooltip      = "Замедлить"
-    btnMax.tooltip       = "Макс. скорость"
+    btnMax.tooltip       = "Макс. скорость (∞)"
     btnMin.tooltip       = "Мин. скорость"
     btnResetView.tooltip = "Сброс вида (масштаб 1:1)"
-    btnSettings.tooltip  = "Настройки симуляции (сезоны, солнце, энергия, …)"
+    btnSettings.tooltip  = "Настройки симуляции (режим, потоки, сезоны, энергия, …)"
   }
 
   // ── панель управления ───────────────────────────────────
@@ -123,28 +134,59 @@ class Window extends MainFrame:
 
   size = new Dimension(petri.widthWin + 30, petri.heightWin + 120)
 
-  // ── продвижение симуляции ───────────────────────────────
-  /** Выполнить `steps` шагов симуляции, сменить сезон при необходимости, перерисовать. */
-  private def advance(steps: Int): Unit =
-    var s = 0
-    while s < steps do
-      petri.pole.itr()
-      tickCount += 1
-      petri.pole.advanceSeason()
-      s += 1
-    petri.repaint()
-    if genomeWindow.visible then genomeWindow.refresh()
+  // ── один шаг симуляции ──────────────────────────────────
+  /** Выполнить один быстрый (индексированный) шаг под замком. */
+  private def oneStep(): Unit = simLock.synchronized {
+    petri.pole.itrFast()
+    tickCount += 1
+    petri.pole.advanceSeason()
+    petri.pole.advanceGravity()
+  }
 
   /** Один шаг симуляции по запросу (ставит на паузу — для пошагового разбора). */
   def stepOnce(): Unit =
     running = false
-    advance(1)
+    oneStep()
+    petri.repaint()
+    if genomeWindow.visible then genomeWindow.refresh()
 
-  // ── таймер симуляции ────────────────────────────────────
-  private val timer = new Timer(
-    SpeedLevels(speedIdx)._1,
+  // ── поток симуляции ─────────────────────────────────────
+  // Симуляция крутится в отдельном потоке (не на EDT) и не привязана к
+  // частоте отрисовки. Темп задаётся «кредитным» ограничителем: за прошедшее
+  // время накапливаем разрешённое число шагов и выполняем их.
+  private val simThread: Thread = new Thread("bioloji-sim"):
+    setDaemon(true)
+    override def run(): Unit =
+      var last = System.nanoTime()
+      var credit = 0.0
+      while true do
+        if !running then
+          Thread.sleep(5)
+          last = System.nanoTime()
+          credit = 0.0
+        else
+          val rate = currentRate
+          if rate.isInfinite then
+            oneStep() // максимальная скорость
+          else
+            val now = System.nanoTime()
+            credit += (now - last) / 1e9 * rate
+            last = now
+            if credit >= 1.0 then
+              // Ограничиваем «догоняющий» всплеск после паузы/лагов.
+              if credit > rate.max(1.0) then credit = rate.max(1.0)
+              while credit >= 1.0 && running do
+                oneStep()
+                credit -= 1.0
+            else Thread.sleep(1)
+  simThread.start()
+
+  // ── таймер отрисовки (на EDT) ───────────────────────────
+  private val renderTimer = new Timer(
+    1000 / RenderFps,
     new ActionListener:
       def actionPerformed(e: ActionEvent): Unit =
-        if running then advance(SpeedLevels(speedIdx)._2)
+        petri.repaint()
+        if genomeWindow.visible then genomeWindow.refresh()
   )
-  timer.start()
+  renderTimer.start()

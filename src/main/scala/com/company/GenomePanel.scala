@@ -91,7 +91,7 @@ object GenomeView:
       val cond = e.action match
         case GenAction.Step | GenAction.Divide => "не хватает энергии"
         case GenAction.Jump =>
-          if e.symbol == 's' || e.symbol == 'e' || e.symbol == 'a' then "нет гена-направления"
+          if e.symbol == 's' || e.symbol == 'e' || e.symbol == 'a' then "нет цифры-направления"
           else "ген — не команда"
         case _ => "переход"
       (target, cond)

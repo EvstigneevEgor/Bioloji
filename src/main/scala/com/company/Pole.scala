@@ -12,7 +12,7 @@ object Pole:
   /** Стартовые геномы для случайных клеток. */
   private val StartGenes =
     Array("fffffffffffffffffffff", "ffffffffffffffff", "f", "f", "f", "f", "f", "f")
-  /** Допустимые направления для размножения/атаки. */
+  /** Направления для принудительного деления при переизбытке энергии. */
   private val Bervz = Array(1, 3, 5, 7)
   /** Максимальное «солнце» (фотосинтез) летом/зимой: energy += (H - j) * mult / H. */
   var SummerLight = 100
@@ -20,6 +20,15 @@ object Pole:
   /** Длительность лета и зимы в тиках симуляции. */
   var SummerTicks = 200
   var WinterTicks = 200
+
+  /**
+   * Гравитация: каждые столько тиков все клетки и трупы смещаются на 1 ячейку
+   * вниз (если место под ними свободно). 0 — гравитация выключена.
+   */
+  var GravityTicks = 400
+
+  /** Seed ГСЧ (применяется при сбросе симуляции) — для воспроизводимых прогонов. */
+  var Seed: Long = 42
 
 /** Тип действия гена под указателем — для наглядного окна генома. */
 enum GenAction:
@@ -59,12 +68,46 @@ class Pole(n: Int, val W: Int, val H: Int):
   import Pole.*
   require(n >= 0 && n <= StartGenes.length, s"n должно быть в диапазоне 0..${StartGenes.length}, получено $n")
 
-  val matr: Array[Array[Kletka]] = Array.tabulate(W, H)((_, _) => new Kletka)
+  // ── Индекс непустых клеток (живых + трупов) ────────────────────────
+  // Полный обход поля W×H дважды за тик — главный расход (память: блуждание
+  // по разбросанным объектам Kletka). Индекс — компактный BitSet по сетке
+  // (бит p = i*H + j взведён, если клетка НЕПУСТАЯ: живая или труп). Это
+  // позволяет за тик трогать только непустые клетки в ТОМ ЖЕ порядке, что и
+  // старый [[itr]] (i — внешний, j — внутренний; ключи p возрастают), через
+  // nextSetBit. Клетки, родившиеся/переехавшие «впереди» курсора, так же
+  // подхватываются в этот же тик — поэтому поведение совпадает с [[itr]]
+  // 1-в-1. Трупы держим в индексе, чтобы каждый тик «тлеть» их (ageCorpse);
+  // они исчезают по таймеру, так что не копятся бесконечно.
+  // BitSet без боксинга — нет GC-нагрузки.
+  private val occ: java.util.BitSet = new java.util.BitSet(W * H)
+
+  // Старый itrobn сбрасывал флаги ВСЕХ клеток, в т.ч. пустых. Флаг `active`
+  // пустой клетки читается как предусловие деления в неё ([[Kletka.burn]]).
+  // Поэтому клетки, ОПУСТЕВШИЕ (del) в этот тик, запоминаем и сбрасываем им
+  // флаги РОВНО в начале следующего тика (как это делал itrobn по всему полю).
+  private val vacated = new scala.collection.mutable.ArrayBuffer[Int]()
+
+  val matr: Array[Array[Kletka]] = Array.tabulate(W, H) { (i, j) =>
+    val k = new Kletka
+    k.px = i
+    k.py = j
+    k.tracker = (x, y, code) =>
+      val p = x * H + y
+      // Живые и трупы — в индексе; пустые выходят и помечаются на сброс флагов.
+      if code == Kletka.StEmpty then
+        occ.clear(p)
+        vacated += p
+      else occ.set(p)
+    k
+  }
 
   var leto: Boolean = true
 
   /** Сколько тиков осталось до смены текущего сезона. */
   private var seasonLeft: Int = SummerTicks
+
+  /** Сколько тиков осталось до следующего смещения «гравитацией» вниз. */
+  private var gravityLeft: Int = GravityTicks
 
   locally {
     var o = 0
@@ -82,61 +125,112 @@ class Pole(n: Int, val W: Int, val H: Int):
   def itrobn(): Unit =
     for i <- 0 until W; j <- 0 until H do matr(i)(j).itnew()
 
+  /**
+   * Обработка одной клетки (i, j): проверка смерти, принудительное деление
+   * при переизбытке энергии и выполнение одной команды генома. Вынесено из
+   * [[itr]], чтобы переиспользовать в быстром индексированном [[itrFast]].
+   */
+  private def processCell(i: Int, j: Int): Unit =
+    val cell = matr(i)(j)
+    // Трупы постепенно «тлеют» и исчезают через заданное число тиков.
+    if cell.isCorpse then cell.ageCorpse()
+    if cell.isLive then
+      if cell.timeLive <= 0 then cell.dead()
+      if cell.energy <= 0 then cell.dead()
+      if cell.energy >= ReproduceThreshold then
+        val dir = bernvzmzn(i, j)
+        if dir != -1 then
+          cell.energy -= ForcedReproduceCost
+          bern(i, j, dir)
+        else cell.dead()
+
+    // Guard: пропускаем неактивные/мёртвые клетки и пустой геном
+    // (защита от деления на ноль).
+    if cell.active && cell.isLive && cell.gen.nonEmpty then
+      cell.timeLive -= 1
+      val g = cell.cont % cell.gen.length
+      cell.gen.charAt(g) match
+        case 'f' =>
+          val light = if leto then SummerLight else WinterLight
+          val gain = (H - j) * light / H
+          cell.energy += gain
+          cell.fedLight += gain
+          cell.cont += 1
+          cell.active = false
+
+        case 's' =>
+          dirArg(cell, g) match
+            case Some(t) if cell.energy - EnergyForStep >= 0 =>
+              cell.active = false
+              step(i, j, t)
+            case _ => cell.bPerehod('s')
+
+        case 'e' =>
+          dirArg(cell, g) match
+            case Some(t) if cell.energy - EnergyForDel >= 0 =>
+              cell.active = false
+              bern(i, j, t)
+            case _ => cell.bPerehod('e')
+
+        case 'a' =>
+          dirArg(cell, g) match
+            case Some(t) =>
+              cell.active = false
+              atack(i, j, t)
+            case None => cell.bPerehod('a')
+
+        case other => cell.bPerehod(other)
+
   /** Один шаг симуляции: обработка команд генома каждой живой клетки. */
   def itr(): Unit =
     itrobn()
-    for i <- 0 until W; j <- 0 until H do
-      val cell = matr(i)(j)
-      if cell.isLive then
-        if cell.timeLive <= 0 then cell.dead()
-        if cell.energy <= 0 then cell.dead()
-        if cell.energy >= ReproduceThreshold then
-          val dir = bernvzmzn(i, j)
-          if dir != -1 then
-            cell.energy -= ForcedReproduceCost
-            bern(i, j, dir)
-          else cell.dead()
+    for i <- 0 until W; j <- 0 until H do processCell(i, j)
 
-      // Guard: пропускаем неактивные/мёртвые клетки и пустой геном
-      // (защита от деления на ноль).
-      if cell.active && cell.isLive && cell.gen.nonEmpty then
-        cell.timeLive -= 1
-        val g = cell.cont % cell.gen.length
-        cell.gen.charAt(g) match
-          case 'f' =>
-            val light = if leto then SummerLight else WinterLight
-            val gain = (H - j) * light / H
-            cell.energy += gain
-            cell.fedLight += gain
-            cell.cont += 1
-            cell.active = false
+  /**
+   * Быстрый шаг: трогаем только непустые клетки через упорядоченный индекс
+   * [[live]], не сканируя пустоту. Обход идёт в том же порядке, что и
+   * [[itr]] (ключ i*H+j возрастает), а клетки, родившиеся/переехавшие
+   * «впереди» курсора, дообрабатываются в этот же тик через `higher` —
+   * поэтому поведение совпадает с [[itr]] 1-в-1. Однопоточный и
+   * детерминированный при фиксированном seed.
+   */
+  def itrFast(): Unit =
+    // 0) Сброс флагов клеток, опустевших в ПРОШЛЫЙ тик (как делал itrobn по
+    //    всему полю) — иначе `active` стал бы устаревшим для деления в них.
+    //    Один буфер => ровно один тик задержки. Чистим до обработки, чтобы
+    //    наполнить его опустевшими уже в этот тик.
+    var k = 0
+    while k < vacated.length do
+      val c = vacated(k)
+      if !occ.get(c) then matr(c / H)(c % H).itnew()
+      k += 1
+    vacated.clear()
 
-          case 's' =>
-            if g + 1 < cell.gen.length then
-              val t = cell.hash(g + 1) % 9 + 1
-              if cell.energy - EnergyForStep >= 0 then
-                cell.active = false
-                step(i, j, t)
-              else cell.bPerehod('s')
-            else cell.bPerehod('s')
+    // 1) Сброс флагов всех непустых клеток (аналог itrobn, но без пустоты).
+    var c = occ.nextSetBit(0)
+    while c >= 0 do
+      matr(c / H)(c % H).itnew()
+      c = occ.nextSetBit(c + 1)
 
-          case 'e' =>
-            if g + 1 < cell.gen.length then
-              val t = Bervz(cell.hash(g + 1) % 4)
-              if cell.energy - EnergyForDel >= 0 then
-                cell.active = false
-                bern(i, j, t)
-              else cell.bPerehod('e')
-            else cell.bPerehod('e')
+    // 2) Обработка в возрастающем порядке ключей; nextSetBit подхватывает
+    //    клетки, добавленные по ходу тика (рождение/переезд вперёд курсора).
+    c = occ.nextSetBit(0)
+    while c >= 0 do
+      processCell(c / H, c % H)
+      c = occ.nextSetBit(c + 1)
 
-          case 'a' =>
-            if g + 1 < cell.gen.length then
-              val t = Bervz(cell.hash(g + 1) % 4)
-              cell.active = false
-              atack(i, j, t)
-            else cell.bPerehod('a')
-
-          case other => cell.bPerehod(other)
+  /**
+   * Направление действия s/e/a — цифра 1..8, стоящая сразу после команды в
+   * геноме. Берётся напрямую как номер направления (1=вверх … 8=вверх-влево),
+   * без всякого «хеширования». Если следующего символа нет или он не цифра
+   * 1..8 — направления нет (`None`), команда не выполняется и указатель прыгает
+   * по `bPerehod`.
+   */
+  private def dirArg(cell: Kletka, g: Int): Option[Int] =
+    if g + 1 < cell.gen.length then
+      val c = cell.gen.charAt(g + 1)
+      Option.when(c >= '1' && c <= '8')(c - '0')
+    else None
 
   /** Координаты соседа в направлении t (1..8) с учётом границ поля. */
   private def neighbor(kx: Int, ky: Int, t: Int): Option[(Int, Int)] = t match
@@ -222,41 +316,41 @@ class Pole(n: Int, val W: Int, val H: Int):
             nextPointer = (k.cont + 1) % len, jumpTo = None, preNote = preNote)
 
         case 's' =>
-          if g + 1 < len then
-            val t = k.hash(g + 1) % 9 + 1
-            val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
-            val feasible = k.energy - EnergyForStep >= 0
-            val jump = jumpTargetOf(k, 's')
-            val next = if feasible then (k.cont + t) % len else jump
-            StepExplanation(g, 's', GenAction.Step, Some(t), ready, feasible,
-              EnergyForStep, 0, next, if feasible then None else Some(jump), preNote)
-          else
-            val jump = jumpTargetOf(k, 's')
-            StepExplanation(g, 's', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+          dirArg(k, g) match
+            case Some(t) =>
+              val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
+              val feasible = k.energy - EnergyForStep >= 0
+              val jump = jumpTargetOf(k, 's')
+              val next = if feasible then (k.cont + t) % len else jump
+              StepExplanation(g, 's', GenAction.Step, Some(t), ready, feasible,
+                EnergyForStep, 0, next, if feasible then None else Some(jump), preNote)
+            case None =>
+              val jump = jumpTargetOf(k, 's')
+              StepExplanation(g, 's', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
 
         case 'e' =>
-          if g + 1 < len then
-            val t = Bervz(k.hash(g + 1) % 4)
-            val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
-            val feasible = k.energy - EnergyForDel >= 0
-            val jump = jumpTargetOf(k, 'e')
-            val next = if feasible then (k.cont + t) % len else jump
-            StepExplanation(g, 'e', GenAction.Divide, Some(t), ready, feasible,
-              EnergyForDel, 0, next, if feasible then None else Some(jump), preNote)
-          else
-            val jump = jumpTargetOf(k, 'e')
-            StepExplanation(g, 'e', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+          dirArg(k, g) match
+            case Some(t) =>
+              val ready = neighbor(x, y, t).map((tx, ty) => !occupied(tx, ty))
+              val feasible = k.energy - EnergyForDel >= 0
+              val jump = jumpTargetOf(k, 'e')
+              val next = if feasible then (k.cont + t) % len else jump
+              StepExplanation(g, 'e', GenAction.Divide, Some(t), ready, feasible,
+                EnergyForDel, 0, next, if feasible then None else Some(jump), preNote)
+            case None =>
+              val jump = jumpTargetOf(k, 'e')
+              StepExplanation(g, 'e', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
 
         case 'a' =>
-          if g + 1 < len then
-            val t = Bervz(k.hash(g + 1) % 4)
-            val ready = neighbor(x, y, t).map((tx, ty) => occupied(tx, ty))
-            StepExplanation(g, 'a', GenAction.Attack, Some(t), ready,
-              feasible = true, energyCost = EnergyForStep, energyGain = 0,
-              nextPointer = (k.cont + t) % len, jumpTo = None, preNote = preNote)
-          else
-            val jump = jumpTargetOf(k, 'a')
-            StepExplanation(g, 'a', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
+          dirArg(k, g) match
+            case Some(t) =>
+              val ready = neighbor(x, y, t).map((tx, ty) => occupied(tx, ty))
+              StepExplanation(g, 'a', GenAction.Attack, Some(t), ready,
+                feasible = true, energyCost = EnergyForStep, energyGain = 0,
+                nextPointer = (k.cont + t) % len, jumpTo = None, preNote = preNote)
+            case None =>
+              val jump = jumpTargetOf(k, 'a')
+              StepExplanation(g, 'a', GenAction.Jump, None, None, false, 0, 0, jump, Some(jump), preNote)
 
         case other =>
           val jump = jumpTargetOf(k, other)
@@ -321,3 +415,31 @@ class Pole(n: Int, val W: Int, val H: Int):
   def advanceSeason(): Unit =
     seasonLeft -= 1
     if seasonLeft <= 0 then year()
+
+  /**
+   * Тик «гравитации»: каждые [[Pole.GravityTicks]] тиков все непустые ячейки
+   * (живые клетки и трупы) смещаются на одну позицию вниз, если место под
+   * ними свободно. При значении 0 гравитация отключена.
+   */
+  def advanceGravity(): Unit =
+    if GravityTicks > 0 then
+      gravityLeft -= 1
+      if gravityLeft <= 0 then
+        gravityLeft = GravityTicks
+        applyGravity()
+
+  /**
+   * Один шаг гравитации: сдвигает каждую непустую ячейку вниз на 1, если ниже
+   * свободно. Обход снизу вверх (j от H-2 к 0), чтобы за один проход клетка
+   * падала ровно на одну ячейку, а не «проваливалась» сразу на несколько.
+   */
+  private def applyGravity(): Unit =
+    var j = H - 2
+    while j >= 0 do
+      var i = 0
+      while i < W do
+        val cell = matr(i)(j)
+        if (cell.isLive || cell.isCorpse) && !occupied(i, j + 1) then
+          cell.fallInto(matr(i)(j + 1))
+        i += 1
+      j -= 1
